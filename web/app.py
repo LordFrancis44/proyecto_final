@@ -56,6 +56,16 @@ def display_results(results_data):
     """Muestra los resultados finales en pestañas con las nuevas métricas y visualizaciones."""
     st.success("¡Análisis completado! Aquí tienes tu feedback de comunicación.")
 
+    metadata = results_data.get("processing_metadata", {})
+    duration = metadata.get("duration_seconds")
+
+    if duration:
+        minutes = int(duration // 60)
+        seconds = int(duration % 60)
+        st.info(f"⏱️ Tiempo total de análisis: {minutes} minutos y {seconds} segundos.")
+    
+    st.markdown("---") # Separador visual
+
     # --- BUG FIX: Usar .get() para evitar errores si una clave no existe ---
     non_verbal = results_data.get("non_verbal_expression", {})
     emotions = results_data.get("emotion_analysis", {})

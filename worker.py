@@ -60,6 +60,7 @@ def run_analysis_task(task_args):
 def process_task(task_filepath):
     task_filename = os.path.basename(task_filepath)
     job_id = None
+    start_time = time.time()
     try:
         logging.info(f"📥 Nueva tarea encontrada: {task_filename}")
         with open(task_filepath, 'r') as f:
@@ -91,7 +92,13 @@ def process_task(task_filepath):
         final_results = {}
         for res in results_list:
             final_results.update(res)
-        # --- FIN DE LA MODIFICACIÓN ---
+        
+        end_time = time.time()
+        duration_seconds = end_time - start_time
+        # Creamos una clave nueva para metadatos del proceso
+        final_results["processing_metadata"] = {
+            "duration_seconds": duration_seconds
+        }
         
         # El resto del proceso se mantiene idéntico.
         # 2. "Limpiar" el diccionario de tipos de NumPy antes de guardar
