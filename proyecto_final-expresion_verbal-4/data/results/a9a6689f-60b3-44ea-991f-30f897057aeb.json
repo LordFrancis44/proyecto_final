@@ -1,0 +1,48 @@
+{
+    "non_verbal_expression": {
+        "mouth_opening_avg": 0.20105544267768088,
+        "mouth_opening_variability": 0.15381365506159103,
+        "gesticulation_height_avg": 0.6219217573848514,
+        "gesticulation_variability": 0.15222614962244815,
+        "body_dynamism": 0.17530225272099795,
+        "head_tilt_variability": 177.54238412813555,
+        "posture_openness_avg": 0.35058629440104644
+    },
+    "emotion_analysis": {
+        "dominant_emotion": "sad",
+        "emotion_distribution": {
+            "sad": 0.43346007604562736,
+            "angry": 0.2661596958174905,
+            "fear": 0.18631178707224336,
+            "neutral": 0.060836501901140684,
+            "happy": 0.049429657794676805,
+            "surprise": 0.0038022813688212928
+        }
+    },
+    "verbal_analysis": {
+        "summary": "In the classroom, I challenge my students to explore the silences in their own lives through poetry. In an effort to create a culture where students feel safe sharing the intimacies of their own silences, I have four core principles posted on the board that sits in the front of my class. \"I've given up soda, McDonald's, French fries, French kisses, and everything in between. For one year, I gave up speaking. Figured the most valuable thing I could sacrifice was my own voice,\" she said. When Christian was beat up for being gay, I put my hands in my pocket and walk with my head down as if I didn't even notice. Couldn't use my locker for weeks because the boat on the lock reminded me of the one I had put on my lips when the homeless man on the corner looked at me with eyes up, merely searching for an affirmation that he was worth seeing. I was more concerned with touching the screen of my apple than actually feeding him one. More than my students needed their dignity, we spend so much time listening to the things people are saying. This year, instead of giving something up, I will live every day as if there were a microphone tucked under my tongue. Just because you watched one episode of The Wire doesn't mean you know anything about my kids. There is no time to pick your battles. When your battles have already picked you.",
+        "keywords": [
+            "silence",
+            "cheers",
+            "students",
+            "tell",
+            "things",
+            "needed",
+            "every",
+            "name",
+            "year",
+            "truth"
+        ],
+        "full_transcription": " Dr. Martin Luther King, Jr. in a 1968 speech where he reflects upon the civil rights movement states. In the end, we will remember not the words of our enemies, but the silence of our friends. As a teacher, I've internalized this message. Every day all around us, we see the consequences of silence manifest themselves in the form of discrimination, violence, genocide, and war. In the classroom, I challenge my students to explore the silences in their own lives through poetry. We work together to fill those spaces, to recognize them, to name them, to understand that they don't have to be sources of shame. In an effort to create a culture within my classroom where students feel safe sharing the intimacies of their own silences, I have four core principles posted on the board that sits in the front of my class, which every student signs at the beginning of the year. Read critically, right consciously, speak clearly, tell your truth. I find myself thinking a lot about that last point. Tell your truth. And I realize that if I was going to ask my students to speak up, I was going to have to tell my truth and be honest with them about the times where I failed to do so. So I tell them that growing up as a kid in a Catholic family in New Orleans, during length, I was always taught that the most meaningful thing one could do was to give something up, sacrifice something you typically indulge in to prove to God, you understand his sanctity. I've given up soda, McDonald's, French fries, French kisses, and everything in between. For one year, I gave up speaking. Figured the most valuable thing I could sacrifice was my own voice, but it was like I hadn't realized that I had given that up a long time ago. I spent so much of my life telling people the things they wanted to hear instead of the things they needed to told myself I wasn't meant to be anyone's conscience because I still had to figure out being my own. So sometimes I just wouldn't say anything. Being ignorance with my silence, unaware that validation doesn't need words to endorse its existence. When Christian was beat up for being gay, I put my hands in my pocket and walk with my head down as if I didn't even notice. Couldn't use my locker for weeks because the boat on the lock reminded me of the one I had put on my lips when the homeless man on the corner looked at me with eyes up, merely searching for an affirmation that he was worth seeing. I was more concerned with touching the screen of my apple than actually feeding him one. When the woman at the fundraising gala said, I'm so proud of you. It must be so hard teaching those poor, unintelligent kids. I bit my lip because apparently we needed her money. More than my students needed their dignity, we spend so much time listening to the things people are saying that we rarely pay attention to the things they don't. Silence is the residue of fear. It is filling your flaws, gut rigidity in your tongue. It is the air retreating from your chest because it doesn't feel safe in your lungs. Silence is rewind in genocide. Silence is Katrina. It is what you hear when there aren't enough body bags left. It is the sound. After the news is already tied. It is charring. It is chains. It is privilege. It is pain. There is no time to pick your battles. When your battles have already picked you, I will not let silence wrap itself around my indecision. I will tell Christian that he is a lion, a sanctuary of bravery and brilliance. I will ask that homeless man what his name is and how his day was because sometimes all people want to be. It's human. That woman, my students can talk about trans and journalism like their last name was the row. Just because you watched one episode of The Wire doesn't mean you know anything about my kids. So this year, instead of giving something up, I will live every day as if there were a microphone tucked under my tongue. A stage on the underside of my inhibition. Because who has to have a soap box? When all you have ever needed is your voice. Thank you. Cheers. Cheers. Cheers. Cheers. Cheers. Cheers.",
+        "verbal_scores": {
+            "message_clarity": 8.26,
+            "structure": 10.0,
+            "lexical_diversity": 4.56,
+            "rhetoric": 7.0,
+            "ending": 10.0
+        }
+    },
+    "processing_metadata": {
+        "duration_seconds": 53.20214009284973
+    }
+}

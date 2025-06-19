@@ -1,0 +1,28 @@
+{
+    "non_verbal_expression": {
+        "mouth_opening_avg": 0.20105544267768088,
+        "mouth_opening_variability": 0.15381365506159103,
+        "gesticulation_height_avg": 0.6219217573848514,
+        "gesticulation_variability": 0.15222614962244815,
+        "body_dynamism": 0.17530225272099795,
+        "head_tilt_variability": 177.54238412813555,
+        "posture_openness_avg": 0.35058629440104644
+    },
+    "emotion_analysis": {
+        "dominant_emotion": "sad",
+        "emotion_distribution": {
+            "sad": 0.43346007604562736,
+            "angry": 0.2661596958174905,
+            "fear": 0.18631178707224336,
+            "neutral": 0.060836501901140684,
+            "happy": 0.049429657794676805,
+            "surprise": 0.0038022813688212928
+        }
+    },
+    "verbal_analysis": {
+        "error": "\u001b[0;31mERROR:\u001b[0m Postprocessing: ffprobe and ffmpeg not found. Please install or provide the path using --ffmpeg-location"
+    },
+    "processing_metadata": {
+        "duration_seconds": 34.65294098854065
+    }
+}
