@@ -94,7 +94,7 @@ def calculate_speech_metrics(audio_path):
 
 
 # --- FUNCIÓN PRINCIPAL (ORQUESTADOR) ---
-def run_speech_analysis(url):
+def run_prosody_analysis(url):
     """
     Orquesta todo el proceso: descarga audio, lo analiza y limpia el archivo.
     """

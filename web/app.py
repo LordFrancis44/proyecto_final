@@ -25,27 +25,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - WEB_APP - %(leveln
 def scale_metric_to_10(value, ideal_range, is_inverse=False):
     """
     Normaliza un valor a una escala de 0 a 10.
-    - value: El valor crudo de la métrica.
-    - ideal_range: Una tupla (min_ideal, max_ideal) que define el rango para un score de 10.
-    - is_inverse: Si es True, un valor más bajo es mejor.
     """
     min_ideal, max_ideal = ideal_range
     
     if is_inverse:
-        # Si un valor bajo es bueno (ej. altura de manos, donde 0 es arriba)
         score = (max_ideal - value) / (max_ideal - min_ideal)
     else:
-        # Si un valor alto es bueno
         score = (value - min_ideal) / (max_ideal - min_ideal)
         
-    # Usamos np.clip para asegurar que el score esté entre 0 y 1, y luego multiplicamos por 10.
     return np.clip(score, 0, 1) * 10
 
 def display_metric_gauge(title, score, help_text):
     """Muestra una métrica con un título atractivo, un score y una barra de progreso."""
     st.markdown(f"**{title}**")
-    st.markdown(f"<h3 style='text-align: center; color: #2E86C1;'>{score:.1f} / 10</h3>", unsafe_allow_html=True)
-    st.progress(score / 10)
+    # Asegurarse de que el score no sea None antes de formatear
+    score_display = score if score is not None else 0.0
+    st.markdown(f"<h3 style='text-align: center; color: #2E86C1;'>{score_display:.1f} / 10</h3>", unsafe_allow_html=True)
+    st.progress(score_display / 10)
     st.caption(help_text)
     st.markdown("---")
 
@@ -64,33 +60,32 @@ def display_results(results_data):
         seconds = int(duration % 60)
         st.info(f"⏱️ Tiempo total de análisis: {minutes} minutos y {seconds} segundos.")
     
-    st.markdown("---") # Separador visual
+    st.markdown("---") 
 
-    # --- BUG FIX: Usar .get() para evitar errores si una clave no existe ---
+    # --- INICIO DE LA MODIFICACIÓN: Extraer también los resultados verbales ---
     non_verbal = results_data.get("non_verbal_expression", {})
     emotions = results_data.get("emotion_analysis", {})
     speech = results_data.get("speech_analysis", {})
+    verbal = results_data.get("verbal_analysis", {}) # NUEVA LÍNEA
+    # --- FIN DE LA MODIFICACIÓN ---
     
     tab1, tab2, tab3, tab4 = st.tabs([
         "🧠 Expresión No Verbal", "🗣️ Expresión Verbal", "🔊 Análisis del Habla", "⭐ Score Final"
     ])
 
-    # --- PESTAÑA 1: EXPRESIÓN NO VERBAL ---
+    # --- PESTAÑA 1: EXPRESIÓN NO VERBAL (sin cambios) ---
     with tab1:
         st.header("Tu Perfil de Comunicador No Verbal")
         
-        # Definir rangos ideales para la escala 0-10 (estos pueden ser ajustados)
-        # (valor para score 0, valor para score 10)
         RANGES = {
-            "gesticulation_height": (1.0, 0.5),   # Manos caídas = 0, Manos a media altura = 10
+            "gesticulation_height": (1.0, 0.5),
             "gesticulation_variability": (0.0, 0.15),
             "mouth_opening": (0.05, 0.4),
             "body_dynamism": (0.0, 0.05),
-            "head_tilt": (0.0, 5.0), # std dev en grados
-            "posture_openness": (1.5, 2.5) # ratio hombros/torso
+            "head_tilt": (0.0, 5.0),
+            "posture_openness": (1.5, 2.5)
         }
         
-        # Calcular scores
         score_gest_height = scale_metric_to_10(non_verbal.get('gesticulation_height_avg', 1.0), RANGES["gesticulation_height"], is_inverse=True)
         score_gest_var = scale_metric_to_10(non_verbal.get('gesticulation_variability', 0.0), RANGES["gesticulation_variability"])
         score_mouth_open = scale_metric_to_10(non_verbal.get('mouth_opening_avg', 0.0), RANGES["mouth_opening"])
@@ -111,63 +106,63 @@ def display_results(results_data):
         
         st.header("Tu Paleta Emocional")
         if emotions and emotions.get('emotion_distribution'):
-            # Diccionario para traducir las emociones de inglés a español
-            emotion_translation = {
-                'angry': 'Enfado',
-                'disgust': 'Asco',
-                'fear': 'Miedo',
-                'happy': 'Alegría',
-                'sad': 'Tristeza',
-                'surprise': 'Sorpresa',
-                'neutral': 'Neutralidad'
-            }
-            
-            # Traducir la emoción dominante para el st.metric
+            emotion_translation = {'angry': 'Enfado','disgust': 'Asco','fear': 'Miedo','happy': 'Alegría','sad': 'Tristeza','surprise': 'Sorpresa','neutral': 'Neutralidad'}
             dominant_emotion_en = emotions.get('dominant_emotion', 'N/A')
             dominant_emotion_es = emotion_translation.get(dominant_emotion_en, dominant_emotion_en).capitalize()
             st.metric(label="Tono Emocional Dominante", value=dominant_emotion_es)
-            
             emotion_dist = emotions.get('emotion_distribution', {})
             df_emotions = pd.DataFrame(list(emotion_dist.items()), columns=['Emoción', 'Porcentaje'])
             df_emotions['Porcentaje'] *= 100
-            
-            # Traducir la columna de emociones en el DataFrame
             df_emotions['Emoción'] = df_emotions['Emoción'].map(emotion_translation).fillna(df_emotions['Emoción'])
-            
-            # Crear el gráfico con ALTAIR para un control total
-            chart = alt.Chart(df_emotions).mark_bar().encode(
-                # El eje X será el porcentaje cuantitativo
-                x=alt.X('Emoción:N', title='Emoción', sort='-x'),
-                # El eje Y serán las emociones nominales (categorías)
-                # Lo ordenamos de mayor a menor para que sea más fácil de leer
-                y=alt.Y('Porcentaje:Q', title='Porcentaje (%)')
-            ).properties(
-                # Podemos añadir un título directamente al gráfico si queremos
-                title='Distribución Emocional' 
-            )
-
-            # Usar st.altair_chart para renderizar el gráfico
+            chart = alt.Chart(df_emotions).mark_bar().encode(x=alt.X('Emoción:N', title='Emoción', sort='-y'),y=alt.Y('Porcentaje:Q', title='Porcentaje (%)')).properties(title='Distribución Emocional')
             st.altair_chart(chart, use_container_width=True)
-            
             st.caption("Esta gráfica muestra la variedad de emociones que se proyectan durante el discurso.")
         else:
             st.write("No se pudo realizar el análisis emocional.")
 
-    # --- Pestañas 2, 3 y 4 (con placeholders) ---
+    # --- PESTAÑA 2: EXPRESIÓN VERBAL (AHORA CON CONTENIDO) ---
     with tab2:
-        st.header("Análisis del Contenido del Discurso")
-        st.info("PRÓXIMAMENTE: Análisis de palabras clave, sentimiento y estructura narrativa.")
+        st.header("Análisis del Contenido de tu Discurso")
+        
+        # --- INICIO DE LA MODIFICACIÓN: Mostrar resultados verbales ---
+        verbal_scores = verbal.get("verbal_scores", {})
+        summary = verbal.get("summary", "No se pudo generar un resumen.")
+        keywords = verbal.get("keywords", [])
+        transcription = verbal.get("full_transcription", "No hay transcripción disponible.")
+        
+        if not verbal:
+             st.warning("No se encontraron datos del análisis verbal.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                display_metric_gauge("Claridad del Mensaje", verbal_scores.get('message_clarity'), "Evalúa la simplicidad y longitud de tus frases. Un score alto indica un mensaje fácil de seguir.")
+                display_metric_gauge("Riqueza Léxica", verbal_scores.get('lexical_diversity'), "Puntúa la variedad de tu vocabulario. Una puntuación alta evita la repetición y enriquece el mensaje.")
+                display_metric_gauge("Fuerza del Cierre", verbal_scores.get('ending'), "Evalúa si el final del discurso contiene un llamado a la acción o palabras de cierre contundentes.")
+            with col2:
+                display_metric_gauge("Estructura Narrativa", verbal_scores.get('structure'), "Mide la cohesión y organización del discurso. Un buen score sugiere una estructura clara (inicio, nudo, desenlace).")
+                display_metric_gauge("Uso de Retórica", verbal_scores.get('rhetoric'), "Detecta el uso de figuras retóricas (preguntas, repeticiones) para hacer el discurso más persuasivo.")
 
+            st.subheader("Resumen del Mensaje")
+            st.info(summary)
+
+            st.subheader("Palabras Clave Detectadas")
+            if keywords:
+                st.success(", ".join(keywords).capitalize())
+            else:
+                st.caption("No se detectaron palabras clave significativas.")
+
+            with st.expander("Ver transcripción completa"):
+                st.text_area("Transcripción", transcription, height=300, disabled=True)
+        # --- FIN DE LA MODIFICACIÓN ---
+
+    # --- PESTAÑA 3: ANÁLISIS DEL HABLA (sin cambios) ---
     with tab3:
         st.header("Análisis de la Voz y el Habla")
-        # Definir rangos ideales para la escala 0-10
         RANGES_SPEECH = {
-            "pitch_variation": (15, 60),      # Poca variación = 0, Mucha variación = 10 (en Hz)
-            "silence_percentage": (40, 10),   # Demasiado silencio = 0, Buen uso de pausas = 10
-            "volume_variability": (0.01, 0.1) # Poca dinámica = 0, Mucha dinámica = 10
+            "pitch_variation": (15, 60),
+            "silence_percentage": (40, 10),
+            "volume_variability": (0.01, 0.1)
         }
-        
-        # Calcular scores
         score_pitch = scale_metric_to_10(speech.get('pitch_variation', 0.0), RANGES_SPEECH["pitch_variation"])
         score_pauses = scale_metric_to_10(speech.get('silence_percentage', 40.0), RANGES_SPEECH["silence_percentage"], is_inverse=True)
         score_volume = scale_metric_to_10(speech.get('volume_variability', 0.0), RANGES_SPEECH["volume_variability"])
@@ -180,16 +175,26 @@ def display_results(results_data):
         with col3:
             display_metric_gauge("Energía Vocal (Dinamismo)", score_volume, "Puntúa la variación en tu volumen. Una puntuación alta refleja una voz dinámica que usa la energía para captar la atención.")
 
+    # --- PESTAÑA 4: SCORE FINAL (AHORA INCLUYE SCORES VERBALES) ---
     with tab4:
         st.header("Tu Score Global de Comunicación")
         st.info("Este es un score agregado basado en todas las métricas analizadas.")
         
-        # Calcular score final como promedio de los scores no verbales
+        # --- INICIO DE LA MODIFICACIÓN: Añadir scores verbales al cálculo final ---
+        verbal_scores_list = list(verbal.get("verbal_scores", {}).values())
+
         all_scores = [
             score_posture, score_mouth_open, score_gest_height, score_body_dyn, 
             score_gest_var, score_head_tilt, score_pitch, score_pauses, score_volume
         ]
-        final_score = np.mean([s for s in all_scores if not np.isnan(s)])
+        # Añadimos los scores verbales a la lista
+        all_scores.extend(verbal_scores_list)
+        
+        # Filtramos posibles valores nulos o no numéricos antes de calcular la media
+        valid_scores = [s for s in all_scores if isinstance(s, (int, float)) and not np.isnan(s)]
+        
+        final_score = np.mean(valid_scores) if valid_scores else 0.0
+        # --- FIN DE LA MODIFICACIÓN ---
         
         st.markdown(f"<h1 style='text-align: center; color: #1E8449;'>{final_score:.1f} / 10</h1>", unsafe_allow_html=True)
         st.progress(final_score / 10)
@@ -202,8 +207,7 @@ def display_results(results_data):
         if 'job_id' in st.session_state: del st.session_state['job_id']
         st.rerun()
 
-# --- LÓGICA DE FLUJO PRINCIPAL Y VALIDACIÓN ---
-
+# --- LÓGICA DE FLUJO PRINCIPAL Y VALIDACIÓN (sin cambios) ---
 def display_main_interface():
     st.set_page_config(page_title="Análisis de Conferencias", layout="wide")
     st.title("🔍 Análisis de Discursos y Conferencias")

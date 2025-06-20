@@ -1,10 +1,12 @@
+# --- COPIA Y PEGA ESTE CÓDIGO MODIFICADO EN TU worker.py ---
+
 import os
 import sys
 import json
 import time
 import logging
 import numpy as np
-from multiprocessing import Pool # Importar la herramienta para paralelizar
+from multiprocessing import Pool
 
 # --- CONFIGURACIÓN DE RUTAS ---
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -12,12 +14,19 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 sys.path.append(SRC_DIR)
 
+# --- INICIO DE LA MODIFICACIÓN CLAVE ---
+# Renombramos TODAS las funciones importadas para evitar cualquier conflicto.
 try:
-    from no_verbal.analysis_logic import run_full_analysis as run_non_verbal_analysis
-    from habla.speech_logic import run_speech_analysis
+    from no_verbal.non_verbal_logic import run_full_analysis as run_non_verbal_analysis
+    # Renombramos la función de 'habla' para que sea más descriptiva (prosodia/voz).
+    from habla.speech_logic import run_prosody_analysis as run_prosody_analysis
+    # La función de 'verbal' ya estaba bien renombrada, la mantenemos.
+    from verbal.verbal_logic import run_speech_analysis as run_verbal_analysis
 except ImportError as e:
-    print(f"Error: No se pudo importar un módulo de análisis: {e}")
+    # Este mensaje de error ahora será mucho más útil si algo falla.
+    print(f"Error: No se pudo importar un módulo de análisis desde la carpeta 'src'. Verifica las rutas y nombres. Detalle: {e}")
     sys.exit(1)
+# --- FIN DE LA MODIFICACIÓN CLAVE ---
 
 TASKS_DIR = os.path.join(DATA_DIR, "tasks")
 RESULTS_DIR = os.path.join(DATA_DIR, "results")
@@ -28,10 +37,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - WORKER - %(levelna
 
 # --- Función de conversión de tipos (sin cambios) ---
 def convert_to_native_types(obj):
-    """
-    Función recursiva para convertir todos los tipos de NumPy en un objeto
-    (diccionario, lista) a tipos nativos de Python que JSON pueda entender.
-    """
     if isinstance(obj, dict):
         return {k: convert_to_native_types(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -40,7 +45,7 @@ def convert_to_native_types(obj):
                         np.int16, np.int32, np.int64, np.uint8,
                         np.uint16, np.uint32, np.uint64)):
         return int(obj)
-    elif isinstance(obj, (np.floating, np.float64, np.float16, np.float32, np.float64)): # He vuelto a añadir np.float_ por si acaso
+    elif isinstance(obj, (np.floating, np.float64, np.float16, np.float32, np.float64)):
         if np.isnan(obj):
             return None
         return float(obj)
@@ -48,14 +53,9 @@ def convert_to_native_types(obj):
         return convert_to_native_types(obj.tolist())
     return obj
 
-# --- INICIO DE LA MODIFICACIÓN: Función helper para el pool ---
-# Esta función es necesaria para que el Pool de multiprocessing pueda llamar
-# a nuestras funciones de análisis con sus argumentos.
 def run_analysis_task(task_args):
-    """Desempaqueta los argumentos y ejecuta la función de análisis correspondiente."""
     analysis_function, url = task_args
     return analysis_function(url)
-# --- FIN DE LA MODIFICACIÓN ---
 
 def process_task(task_filepath):
     task_filename = os.path.basename(task_filepath)
@@ -69,45 +69,36 @@ def process_task(task_filepath):
         url = task_data['url']
         job_id = task_data['job_id']
 
-        # --- INICIO DE LA MODIFICACIÓN: Ejecución en paralelo ---
         logging.info(f"Lanzando análisis en paralelo para el job_id: {job_id}")
 
-        # 1. Definir la lista de tareas que se ejecutarán en paralelo.
-        # Cada tupla contiene la función a ejecutar y su argumento (la URL).
+        # --- INICIO DE LA MODIFICACIÓN CLAVE ---
+        # Usamos los nuevos nombres de función, que ahora son únicos y claros.
         tasks_to_run = [
-            (run_non_verbal_analysis, url),
-            (run_speech_analysis, url)
+            (run_non_verbal_analysis, url), # Análisis de gestos y emociones
+            (run_prosody_analysis, url),    # Análisis de la prosodia (tono, pausas)
+            (run_verbal_analysis, url)      # Análisis del contenido (transcripción, palabras)
         ]
+        # --- FIN DE LA MODIFICACIÓN CLAVE ---
 
-        # 2. Crear un "pool" de 2 procesos trabajadores.
-        # El bloque 'with' asegura que los procesos se cierren correctamente.
-        with Pool(processes=2) as pool:
-            # 3. Mapear las tareas al pool. La función 'map' distribuye las tareas
-            # entre los procesos disponibles y espera a que todas terminen.
-            # 'results_list' contendrá una lista con los diccionarios de resultados,
-            # uno por cada análisis.
+        with Pool(processes=3) as pool: # Aumentado a 3 para que cada tarea tenga su propio proceso
             results_list = pool.map(run_analysis_task, tasks_to_run)
         
-        # 4. Fusionar los resultados de la lista en un solo diccionario final.
         final_results = {}
         for res in results_list:
-            final_results.update(res)
+            if res: # Añadir solo si el resultado no es None
+                final_results.update(res)
         
         end_time = time.time()
         duration_seconds = end_time - start_time
-        # Creamos una clave nueva para metadatos del proceso
         final_results["processing_metadata"] = {
             "duration_seconds": duration_seconds
         }
         
-        # El resto del proceso se mantiene idéntico.
-        # 2. "Limpiar" el diccionario de tipos de NumPy antes de guardar
         cleaned_results = convert_to_native_types(final_results)
         
         logging.info(f"Todos los análisis para {job_id} completados con éxito.")
         result_filepath = os.path.join(RESULTS_DIR, f"{job_id}.json")
         
-        # 3. Guardar el diccionario ya limpio.
         with open(result_filepath, 'w') as f:
             json.dump(cleaned_results, f, indent=4)
         
@@ -146,6 +137,4 @@ def main():
             time.sleep(10)
 
 if __name__ == "__main__":
-    # Esta comprobación es crucial para que multiprocessing funcione correctamente
-    # en algunos sistemas operativos como Windows.
     main()
