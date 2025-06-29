@@ -22,18 +22,23 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - WEB_APP - %(leveln
 
 # --- FUNCIONES DE VISUALIZACIÓN Y ESCALADO DE MÉTRICAS ---
 
-def scale_metric_to_10(value, ideal_range, is_inverse=False):
+def scale_metric_gaussian(value, ideal_point, width, is_inverse=False):
     """
-    Normaliza un valor a una escala de 0 a 10.
+    Escala un valor usando una curva Gaussiana. La puntuación es 10 en el 'ideal_point'
+    y disminuye a medida que el valor se aleja. 'width' controla la tolerancia.
     """
-    min_ideal, max_ideal = ideal_range
+    if value is None or np.isnan(value):
+        return 0.0
     
     if is_inverse:
-        score = (max_ideal - value) / (max_ideal - min_ideal)
+        if value <= ideal_point: return 10.0
+        # La penalización aumenta a medida que 'value' se hace MÁS GRANDE que el ideal
+        score = np.exp(-0.5 * ((value - ideal_point) / width) ** 2)
     else:
-        score = (value - min_ideal) / (max_ideal - min_ideal)
-        
-    return np.clip(score, 0, 1) * 10
+        # La penalización aumenta a medida que 'value' se aleja del ideal en CUALQUIER dirección
+        score = np.exp(-0.5 * ((value - ideal_point) / width) ** 2)
+
+    return score * 10
 
 def display_metric_gauge(title, score, help_text):
     """Muestra una métrica con un título atractivo, un score y una barra de progreso."""
@@ -45,10 +50,21 @@ def display_metric_gauge(title, score, help_text):
     st.caption(help_text)
     st.markdown("---")
 
+def display_timestamp_link(label, example_data, video_url):
+    """Muestra un enlace a un momento específico del vídeo si el timestamp existe."""
+    if example_data and example_data.get('timestamp') is not None:
+        ts = example_data['timestamp']
+        text = example_data.get('text', '')
+        st.markdown(f"**{label}:**")
+        # El enlace abre el vídeo de YouTube en el segundo exacto
+        link = f"<a href='{video_url}&t={int(ts)}s' target='_blank'>Ver momento (Minuto {int(ts//60)}:{int(ts%60):02d})</a>"
+        st.markdown(link, unsafe_allow_html=True)
+        if text:
+            st.info(f"> {text}")
 
 # --- FUNCIONES PRINCIPALES DE LA INTERFAZ ---
 
-def display_results(results_data):
+def display_results(results_data, video_url):
     """Muestra los resultados finales en pestañas con las nuevas métricas y visualizaciones."""
     st.success("¡Análisis completado! Aquí tienes tu feedback de comunicación.")
 
@@ -62,36 +78,55 @@ def display_results(results_data):
     
     st.markdown("---") 
 
-    # --- INICIO DE LA MODIFICACIÓN: Extraer también los resultados verbales ---
     non_verbal = results_data.get("non_verbal_expression", {})
+    non_verbal_scores = non_verbal.get("scores", {})
+    non_verbal_examples = non_verbal.get("examples", {})
+
     emotions = results_data.get("emotion_analysis", {})
+
     speech = results_data.get("speech_analysis", {})
-    verbal = results_data.get("verbal_analysis", {}) # NUEVA LÍNEA
-    # --- FIN DE LA MODIFICACIÓN ---
+    speech_scores = speech.get("scores", {})
+    speech_examples = speech.get("examples", {})
+
+    verbal = results_data.get("verbal_analysis", {})
+    verbal_scores = verbal.get("scores", {})
+    st.info(f"Idioma detectado: **{verbal.get('detected_language', 'No detectado')}**")
+    qualitative_feedback = verbal.get("qualitative_feedback", {})
+    filler_feedback = qualitative_feedback.get("filler_words", {})
+    sentence_feedback = qualitative_feedback.get("key_sentences", {})
     
+    RANGES_NON_VERBAL = {
+            "posture_openness": {'ideal_point': 2.2, 'width': 0.5},
+            "mouth_opening": {'ideal_point': 0.35, 'width': 0.15},
+            "gesticulation_height": {'ideal_point': 0.5, 'width': 0.2, 'is_inverse': True}, # Ideal a la altura del pecho
+            "body_dynamism": {'ideal_point': 0.04, 'width': 0.02},
+            "gesticulation_variability": {'ideal_point': 0.1, 'width': 0.05},
+            "head_tilt": {'ideal_point': 4.0, 'width': 2.0}
+        }
+    
+    score_gest_height = scale_metric_gaussian(non_verbal_scores.get('gesticulation_height_avg', 1.0), **RANGES_NON_VERBAL["gesticulation_height"])
+    score_gest_var = scale_metric_gaussian(non_verbal_scores.get('gesticulation_variability', 0.0), **RANGES_NON_VERBAL["gesticulation_variability"])
+    score_mouth_open = scale_metric_gaussian(non_verbal_scores.get('mouth_opening_avg', 0.0), **RANGES_NON_VERBAL["mouth_opening"])
+    score_body_dyn = scale_metric_gaussian(non_verbal_scores.get('body_dynamism', 0.0), **RANGES_NON_VERBAL["body_dynamism"])
+    score_head_tilt = scale_metric_gaussian(non_verbal_scores.get('head_tilt_variability', 0.0), **RANGES_NON_VERBAL["head_tilt"])
+    score_posture = scale_metric_gaussian(non_verbal_scores.get('posture_openness_avg', 0.0), **RANGES_NON_VERBAL["posture_openness"])
+    
+    RANGES_SPEECH = {
+        "pitch_variation":    {'ideal_point': 55, 'width': 20},
+        "silence_percentage": {'ideal_point': 18, 'width': 10},
+        "volume_variability": {'ideal_point': 0.08, 'width': 0.05}
+    }
+    score_pitch = scale_metric_gaussian(speech_scores.get('pitch_variation'), **RANGES_SPEECH["pitch_variation"])
+    score_pauses = scale_metric_gaussian(speech_scores.get('silence_percentage'), **RANGES_SPEECH["silence_percentage"])
+    score_volume = scale_metric_gaussian(speech_scores.get('volume_variability'), **RANGES_SPEECH["volume_variability"])
+
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🧠 Expresión No Verbal", "🗣️ Expresión Verbal", "🔊 Análisis del Habla", "⭐ Score Final"
+        "🧠 Expresión No Verbal", "🗣️ Contenido y Claridad", "🔊 Voz y Prosodia", "⭐ Resumen y Score Final"
     ])
 
-    # --- PESTAÑA 1: EXPRESIÓN NO VERBAL (sin cambios) ---
+    # --- PESTAÑA 1: EXPRESIÓN NO VERBAL ---
     with tab1:
         st.header("Tu Perfil de Comunicador No Verbal")
-        
-        RANGES = {
-            "gesticulation_height": (1.0, 0.5),
-            "gesticulation_variability": (0.0, 0.15),
-            "mouth_opening": (0.05, 0.4),
-            "body_dynamism": (0.0, 0.05),
-            "head_tilt": (0.0, 5.0),
-            "posture_openness": (1.5, 2.5)
-        }
-        
-        score_gest_height = scale_metric_to_10(non_verbal.get('gesticulation_height_avg', 1.0), RANGES["gesticulation_height"], is_inverse=True)
-        score_gest_var = scale_metric_to_10(non_verbal.get('gesticulation_variability', 0.0), RANGES["gesticulation_variability"])
-        score_mouth_open = scale_metric_to_10(non_verbal.get('mouth_opening_avg', 0.0), RANGES["mouth_opening"])
-        score_body_dyn = scale_metric_to_10(non_verbal.get('body_dynamism', 0.0), RANGES["body_dynamism"])
-        score_head_tilt = scale_metric_to_10(non_verbal.get('head_tilt_variability', 0.0), RANGES["head_tilt"])
-        score_posture = scale_metric_to_10(non_verbal.get('posture_openness_avg', 0.0), RANGES["posture_openness"])
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -104,6 +139,26 @@ def display_results(results_data):
             display_metric_gauge("Lenguaje de Manos", score_gest_var, "Puntúa la variedad y energía de tus gestos. Un buen score significa que usas tus manos para enfatizar tu mensaje.")
             display_metric_gauge("Conexión Empática", score_head_tilt, "Basado en la inclinación de tu cabeza. Un valor alto sugiere que conectas con la audiencia de forma natural.")
         
+        with st.expander("🔍 Ver ejemplos donde mejorar"):
+            st.write("Hemos identificado los siguientes ejemplos de aspectos que puedes mejorar")
+            # La función display_timestamp_link no es ideal aquí, lo hacemos manual
+            def show_improvement_examples(label, timestamps, video_url):
+                if timestamps:
+                    st.markdown(f"**Ejemplos de mejora para '{label}':**")
+                    links = []
+                    for i, ts in enumerate(timestamps):
+                        links.append(f"<a href='{video_url}&t={int(ts)}s' target='_blank'>Ejemplo {i+1}</a>")
+                    st.markdown(" | ".join(links), unsafe_allow_html=True)
+
+            non_verbal_examples = non_verbal.get("examples_to_improve", {})
+            show_improvement_examples("Postura", non_verbal_examples.get('posture_openness'), video_url)
+            show_improvement_examples("Altura de Gestos", non_verbal_examples.get('gesticulation_height'), video_url)
+            show_improvement_examples("Apertura de la boca", non_verbal_examples.get('mouth_opening'), video_url)
+            show_improvement_examples("Dinamismo del cuerpo", non_verbal_examples.get('body_dynamism'), video_url)
+            show_improvement_examples("Cabeceo", non_verbal_examples.get('head_tilt'), video_url)
+           
+
+
         st.header("Tu Paleta Emocional")
         if emotions and emotions.get('emotion_distribution'):
             emotion_translation = {'angry': 'Enfado','disgust': 'Asco','fear': 'Miedo','happy': 'Alegría','sad': 'Tristeza','surprise': 'Sorpresa','neutral': 'Neutralidad'}
@@ -120,52 +175,83 @@ def display_results(results_data):
         else:
             st.write("No se pudo realizar el análisis emocional.")
 
-    # --- PESTAÑA 2: EXPRESIÓN VERBAL (AHORA CON CONTENIDO) ---
+    # --- PESTAÑA 2: EXPRESIÓN VERBAL ---
     with tab2:
         st.header("Análisis del Contenido de tu Discurso")
-        
-        # --- INICIO DE LA MODIFICACIÓN: Mostrar resultados verbales ---
-        verbal_scores = verbal.get("verbal_scores", {})
-        summary = verbal.get("summary", "No se pudo generar un resumen.")
-        keywords = verbal.get("keywords", [])
-        transcription = verbal.get("full_transcription", "No hay transcripción disponible.")
-        
+
         if not verbal:
-             st.warning("No se encontraron datos del análisis verbal.")
+            st.warning("No se encontraron datos del análisis verbal.")
         else:
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
                 display_metric_gauge("Claridad del Mensaje", verbal_scores.get('message_clarity'), "Evalúa la simplicidad y longitud de tus frases. Un score alto indica un mensaje fácil de seguir.")
-                display_metric_gauge("Riqueza Léxica", verbal_scores.get('lexical_diversity'), "Puntúa la variedad de tu vocabulario. Una puntuación alta evita la repetición y enriquece el mensaje.")
-                display_metric_gauge("Fuerza del Cierre", verbal_scores.get('ending'), "Evalúa si el final del discurso contiene un llamado a la acción o palabras de cierre contundentes.")
+                display_metric_gauge("Riqueza Léxica", verbal_scores.get('lexical_diversity'), "Puntúa la variedad de tu vocabulario para evitar la repetición.")
             with col2:
-                display_metric_gauge("Estructura Narrativa", verbal_scores.get('structure'), "Mide la cohesión y organización del discurso. Un buen score sugiere una estructura clara (inicio, nudo, desenlace).")
-                display_metric_gauge("Uso de Retórica", verbal_scores.get('rhetoric'), "Detecta el uso de figuras retóricas (preguntas, repeticiones) para hacer el discurso más persuasivo.")
+                display_metric_gauge("Estructura Narrativa", verbal_scores.get('structure'), "Mide la cohesión y organización de tu discurso.")
+                display_metric_gauge("Uso de Retórica", verbal_scores.get('rhetoric'), "Detecta figuras retóricas para hacer el discurso más persuasivo.")
+            with col3:
+                # El nuevo gauge para muletillas
+                display_metric_gauge("Uso de Muletillas", verbal_scores.get('filler_words_usage'), "Una puntuación alta indica un discurso fluido y sin apenas muletillas (ej: 'um', 'este', 'like').")
+                display_metric_gauge("Fuerza del Cierre", verbal_scores.get('ending'), "Evalúa si el final es contundente y claro.")
+            
+            st.markdown("---")
+            st.subheader("💡 Feedback Cualitativo")
 
-            st.subheader("Resumen del Mensaje")
-            st.info(summary)
+            # Sección de Muletillas
+            with st.container():
+                st.markdown("#### Análisis de Muletillas")
+                if filler_feedback and filler_feedback.get('total_count', 0) > 0:
+                    total_count = filler_feedback['total_count']
+                    most_common = filler_feedback.get('most_common', 'N/A')
+                    dist = filler_feedback.get('distribution', {})
+                    
+                    st.warning(f"Hemos detectado **{total_count}** muletillas en tu discurso.")
+                    st.write(f"La más frecuente fue **'{most_common}'**.")
+                    
+                    # Mostrar enlace al primer uso de la muletilla más común
+                    if filler_feedback.get('example_timestamp'):
+                         ts = filler_feedback['example_timestamp']
+                         st.markdown(f"Puedes escuchar un ejemplo <a href='{video_url}&t={int(ts)}s' target='_blank'>aquí</a>.", unsafe_allow_html=True)
 
-            st.subheader("Palabras Clave Detectadas")
-            if keywords:
-                st.success(", ".join(keywords).capitalize())
-            else:
-                st.caption("No se detectaron palabras clave significativas.")
+                    with st.expander("Ver desglose de muletillas"):
+                        df_fillers = pd.DataFrame(dist.items(), columns=['Muletilla', 'Frecuencia']).sort_values('Frecuencia', ascending=False)
+                        st.dataframe(df_fillers)
+                else:
+                    st.success("¡Felicidades! Apenas hemos detectado muletillas en tu discurso. ¡Muy buen trabajo!")
 
-            with st.expander("Ver transcripción completa"):
-                st.text_area("Transcripción", transcription, height=300, disabled=True)
-        # --- FIN DE LA MODIFICACIÓN ---
+            # Sección de Frases Clave
+            with st.container():
+                st.markdown("#### Oraciones Clave Identificadas")
+                if sentence_feedback:
+                    best_sentence = sentence_feedback.get('best_sentence')
+                    confusing_sentence = sentence_feedback.get('confusing_sentence')
 
-    # --- PESTAÑA 3: ANÁLISIS DEL HABLA (sin cambios) ---
+                    if best_sentence:
+                        st.markdown("**✅ Ejemplo de Oración Clara y Potente:**")
+                        st.info(f"> {best_sentence['text']}")
+                        ts = best_sentence['timestamp']
+                        st.markdown(f"Escúchala en el <a href='{video_url}&t={int(ts)}s' target='_blank'>minuto {int(ts//60)}:{int(ts%60):02d}</a>.", unsafe_allow_html=True)
+                    
+                    if confusing_sentence:
+                        st.markdown("**⚠️ Ejemplo de Oración Larga (Potencialmente Confusa):**")
+                        st.warning(f"> {confusing_sentence['text']}")
+                        ts = confusing_sentence['timestamp']
+                        st.markdown(f"Escúchala en el <a href='{video_url}&t={int(ts)}s' target='_blank'>minuto {int(ts//60)}:{int(ts%60):02d}</a>.", unsafe_allow_html=True)
+
+            # Resumen y Transcripción
+            st.markdown("---")
+            with st.expander("Ver Resumen y Transcripción Completa"):
+                st.subheader("Resumen del Mensaje")
+                st.info(verbal.get("summary", "No se pudo generar un resumen."))
+                st.subheader("Palabras Clave")
+                st.success(", ".join(verbal.get("keywords", [])).capitalize())
+                st.subheader("Transcripción")
+                st.text_area("Transcripción", verbal.get("full_transcription", ""), height=200, disabled=True)
+
+
+    # --- PESTAÑA 3: ANÁLISIS DEL HABLA ---
     with tab3:
-        st.header("Análisis de la Voz y el Habla")
-        RANGES_SPEECH = {
-            "pitch_variation": (15, 60),
-            "silence_percentage": (40, 10),
-            "volume_variability": (0.01, 0.1)
-        }
-        score_pitch = scale_metric_to_10(speech.get('pitch_variation', 0.0), RANGES_SPEECH["pitch_variation"])
-        score_pauses = scale_metric_to_10(speech.get('silence_percentage', 40.0), RANGES_SPEECH["silence_percentage"], is_inverse=True)
-        score_volume = scale_metric_to_10(speech.get('volume_variability', 0.0), RANGES_SPEECH["volume_variability"])
+        st.header("Análisis de la Prosodia")
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -175,26 +261,36 @@ def display_results(results_data):
         with col3:
             display_metric_gauge("Energía Vocal (Dinamismo)", score_volume, "Puntúa la variación en tu volumen. Una puntuación alta refleja una voz dinámica que usa la energía para captar la atención.")
 
-    # --- PESTAÑA 4: SCORE FINAL (AHORA INCLUYE SCORES VERBALES) ---
+        with st.expander("🔍 Ejemplos de mejora"):
+            st.write("Hemos encontrado los siguientes ejemplos de aspectos a mejorar:")
+            
+            def show_improvement_examples(label, timestamps, video_url):
+                if timestamps:
+                    st.markdown(f"**{label}:**")
+                    links = []
+                    for i, ts in enumerate(timestamps):
+                        links.append(f"<a href='{video_url}&t={int(ts)}s' target='_blank'>Ejemplo {i+1}</a>")
+                    st.markdown(" | ".join(links), unsafe_allow_html=True)
+
+            speech_examples = speech.get("examples_to_improve", {})
+
+            show_improvement_examples("Momentos de voz monótona", speech_examples.get('monotony', []), video_url)
+            show_improvement_examples("Segmentos de habla muy rápida", speech_examples.get('fast_pace', []), video_url)
+            show_improvement_examples("Momentos de volumen bajo", speech_examples.get('low_volume', []), video_url)
+            show_improvement_examples("Momentos de volumen excesivo", speech_examples.get('high_volume', []), video_url)
+
+    # --- PESTAÑA 4: SCORE FINAL ---
     with tab4:
         st.header("Tu Score Global de Comunicación")
         st.info("Este es un score agregado basado en todas las métricas analizadas.")
         
-        # --- INICIO DE LA MODIFICACIÓN: Añadir scores verbales al cálculo final ---
-        verbal_scores_list = list(verbal.get("verbal_scores", {}).values())
+        verbal_scores_list = list(verbal_scores.values()) if verbal_scores else []
+        speech_scores_list = [score_pitch, score_pauses, score_volume]
+        non_verbal_scores_list = [score_posture, score_mouth_open, score_gest_height, score_body_dyn, score_gest_var, score_head_tilt]
 
-        all_scores = [
-            score_posture, score_mouth_open, score_gest_height, score_body_dyn, 
-            score_gest_var, score_head_tilt, score_pitch, score_pauses, score_volume
-        ]
-        # Añadimos los scores verbales a la lista
-        all_scores.extend(verbal_scores_list)
-        
-        # Filtramos posibles valores nulos o no numéricos antes de calcular la media
+        all_scores = verbal_scores_list + non_verbal_scores_list + speech_scores_list
         valid_scores = [s for s in all_scores if isinstance(s, (int, float)) and not np.isnan(s)]
-        
         final_score = np.mean(valid_scores) if valid_scores else 0.0
-        # --- FIN DE LA MODIFICACIÓN ---
         
         st.markdown(f"<h1 style='text-align: center; color: #1E8449;'>{final_score:.1f} / 10</h1>", unsafe_allow_html=True)
         st.progress(final_score / 10)
@@ -259,7 +355,10 @@ def main_flow():
         error_filepath = os.path.join(RESULTS_DIR, f"{job_id}.error")
         if os.path.exists(result_filepath):
             with open(result_filepath, 'r') as f: results_data = json.load(f)
-            display_results(results_data)
+            video_url = st.session_state.get('last_url', '')
+            if 'url_input' in st.session_state:
+                video_url = st.session_state['url_input']
+            display_results(results_data, video_url)
         elif os.path.exists(error_filepath):
             with open(error_filepath, 'r') as f: error_message = f.read()
             st.error(f"Ocurrió un error durante el análisis: {error_message}")
@@ -270,4 +369,6 @@ def main_flow():
             display_processing_status()
 
 if __name__ == "__main__":
+    if 'url_input' in st.session_state and st.session_state['url_input']:
+        st.session_state['last_url'] = st.session_state['url_input']
     main_flow()

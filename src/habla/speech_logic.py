@@ -5,6 +5,7 @@ import yt_dlp
 import librosa
 import numpy as np
 import logging
+import pandas as pd
 
 # Configurar un logger simple para este módulo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - SPEECH_LOGIC - %(levelname)s - %(message)s')
@@ -23,7 +24,7 @@ def download_audio_only(url, audio_dir="data/audio_raw"):
         'quiet': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav', # WAV es ideal para análisis
+            'preferredcodec': 'wav', 
             'preferredquality': '192',
         }],
     }
@@ -32,7 +33,6 @@ def download_audio_only(url, audio_dir="data/audio_raw"):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             video_id = info['id']
-            # El archivo final será .wav por el post-procesador
             filepath = os.path.join(audio_dir, f"{video_id}.wav")
             
             if not os.path.exists(filepath):
@@ -45,6 +45,75 @@ def download_audio_only(url, audio_dir="data/audio_raw"):
         error_message = f"Error durante la descarga de audio: {e}"
         logging.error(error_message, exc_info=True)
         return None
+
+# Encontrar ejemplos
+def find_speech_examples(y, sr, f0, voiced_flag, non_silent_intervals, rms):
+    """
+    VERSIÓN ROBUSTA: Encuentra 2 ejemplos distintos de momentos a mejorar.
+    """
+    import pandas as pd
+    examples_to_improve = {}
+    hop_length = 512
+    MIN_EXAMPLE_DISTANCE_SEC = 10.0 # Asegura que los ejemplos estén separados por al menos 10 segundos
+
+    def get_distinct_timestamps(df, column_name, find_smallest=True, count=2):
+        """Función auxiliar para obtener N timestamps distintos para una métrica."""
+        if df.empty or column_name not in df.columns or df[column_name].isnull().all():
+            return []
+        
+        # Obtenemos más candidatos de los que necesitamos para tener de dónde elegir
+        candidates = df.nsmallest(count * 5, column_name) if find_smallest else df.nlargest(count * 5, column_name)
+        
+        selected_timestamps = []
+        for _, row in candidates.iterrows():
+            ts = round(librosa.frames_to_time(row['frame'], sr=sr, hop_length=hop_length), 1)
+            # Comprobar si el nuevo timestamp está lo suficientemente lejos de los ya seleccionados
+            is_far_enough = all(abs(ts - existing_ts) > MIN_EXAMPLE_DISTANCE_SEC for existing_ts in selected_timestamps)
+            if is_far_enough:
+                selected_timestamps.append(ts)
+            if len(selected_timestamps) == count:
+                break
+        return sorted(selected_timestamps)
+
+    # --- 1. Voz Monótona ---
+    try:
+        df_f0 = pd.DataFrame({'f0': f0, 'frame': np.arange(len(f0))})
+        df_voiced = df_f0[voiced_flag]
+        if len(df_voiced) > int(3 * sr / hop_length):
+            df_voiced['f0_std'] = df_voiced['f0'].rolling(window=int(3 * sr / hop_length), center=True).std().fillna(100)
+            examples_to_improve['monotony'] = get_distinct_timestamps(df_voiced, 'f0_std', find_smallest=True)
+        else:
+            examples_to_improve['monotony'] = []
+    except Exception as e:
+        print(f"Error en monotonía: {e}")
+        examples_to_improve['monotony'] = []
+
+    # --- 2. Ritmo Rápido ---
+    try:
+        if len(non_silent_intervals) > 2:
+            speech_segments = [{'duration': (end - start), 'ts': round(start / sr, 1)} for start, end in non_silent_intervals]
+            speech_segments.sort(key=lambda x: x['duration'], reverse=True)
+            examples_to_improve['fast_pace'] = [s['ts'] for s in speech_segments[:2]]
+        else:
+            examples_to_improve['fast_pace'] = []
+    except Exception:
+        examples_to_improve['fast_pace'] = []
+
+    # --- 3. Volumen Bajo y Alto ---
+    try:
+        df_rms = pd.DataFrame({'rms': rms, 'frame': np.arange(len(rms))})
+        df_rms_voiced = df_rms[voiced_flag]
+        if len(df_rms_voiced) > 5: # Necesitamos suficientes datos
+            examples_to_improve['low_volume'] = get_distinct_timestamps(df_rms_voiced, 'rms', find_smallest=True)
+            examples_to_improve['high_volume'] = get_distinct_timestamps(df_rms_voiced, 'rms', find_smallest=False)
+        else:
+            examples_to_improve['low_volume'] = []
+            examples_to_improve['high_volume'] = []
+    except Exception:
+        examples_to_improve['low_volume'] = []
+        examples_to_improve['high_volume'] = []
+        
+    return examples_to_improve
 
 # --- FUNCIÓN 2: CÁLCULO DE MÉTRICAS DEL HABLA ---
 def calculate_speech_metrics(audio_path):
@@ -76,13 +145,18 @@ def calculate_speech_metrics(audio_path):
         rms = librosa.feature.rms(y=y)[0]
         volume_avg = np.mean(rms)
         volume_variability = np.std(rms)
+
+        noteworthy_examples = find_speech_examples(y, sr, f0, voiced_flag, non_silent_intervals, rms)
         
         results = {
             "speech_analysis": {
-                "pitch_variation": pitch_variation if not np.isnan(pitch_variation) else 0.0,
-                "silence_percentage": silence_percentage if not np.isnan(silence_percentage) else 0.0,
-                "volume_avg": volume_avg if not np.isnan(volume_avg) else 0.0,
-                "volume_variability": volume_variability if not np.isnan(volume_variability) else 0.0,
+                "scores":{
+                    "pitch_variation": pitch_variation if not np.isnan(pitch_variation) else 0.0,
+                    "silence_percentage": silence_percentage if not np.isnan(silence_percentage) else 0.0,
+                    "volume_avg": volume_avg if not np.isnan(volume_avg) else 0.0,
+                    "volume_variability": volume_variability if not np.isnan(volume_variability) else 0.0,
+                },
+                "examples_to_improve": noteworthy_examples
             }
         }
         logging.info(f"Métricas de habla calculadas: {results}")

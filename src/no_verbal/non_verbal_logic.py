@@ -71,7 +71,7 @@ def process_video_single_pass(video_path, video_id):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logging.error(f"No se pudo abrir el archivo de video: {video_path}")
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), None
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_interval = int(fps) if fps > 0 else 1
@@ -110,7 +110,7 @@ def process_video_single_pass(video_path, video_id):
     cap.release()
     holistic.close()
     
-    return pd.DataFrame(landmarks_data), pd.DataFrame(emotions_data)
+    return pd.DataFrame(landmarks_data), pd.DataFrame(emotions_data), fps
 
 # --- FUNCIONES AUXILIARES PARA MÉTRICAS ---
 
@@ -166,13 +166,66 @@ def calculate_open_posture_ratio(row):
         return shoulder_width / torso_height if torso_height > 1e-6 else 0.0
     except KeyError: return np.nan
 
+def find_noteworthy_timestamps(df, fps):
+    """
+    Analiza el DataFrame para encontrar los dos peores momentos
+    para cada métrica, como ejemplos a mejorar.
+    """
+    if df.empty or not fps or fps <= 0:
+        return {}
+
+    examples = {}
+    
+    def get_two_worst_timestamps(metric_name, find_smallest=True):
+        """
+        Función interna para encontrar los 2 peores frames y convertirlos a timestamps.
+        'find_smallest=True' significa que los valores más bajos son los peores.
+        """
+        try:
+            if metric_name not in df.columns or df[metric_name].isnull().all():
+                return []
+            
+            # Usar nsmallest/nlargest para encontrar los dos peores frames
+            if find_smallest:
+                worst_frames = df.nsmallest(2, metric_name)
+            else:
+                worst_frames = df.nlargest(2, metric_name)
+            
+            if worst_frames.empty:
+                return []
+
+            # Obtener los números de frame originales y convertir a timestamps
+            timestamps = [round(row['frame'] / fps, 1) for _, row in worst_frames.iterrows()]
+            return sorted(list(set(timestamps))) # Devuelve timestamps únicos y ordenados
+        except (ValueError, KeyError):
+            return []
+
+    # 1. Postura (open_posture_ratio): los 2 valores más bajos (postura cerrada) son peores.
+    examples['posture_openness'] = get_two_worst_timestamps('open_posture_ratio', find_smallest=True)
+
+    # 2. Claridad Vocal (mar): los 2 valores más bajos (boca cerrada) son peores.
+    examples['mouth_opening'] = get_two_worst_timestamps('mar', find_smallest=True)
+
+    # 3. Presencia Escénica (avg_wrist_y): los 2 valores más altos (manos bajas) son peores.
+    examples['gesticulation_height'] = get_two_worst_timestamps('avg_wrist_y', find_smallest=False)
+
+    # 4. Dinamismo Corporal (body_center_x): buscamos los 2 momentos de menor movimiento.
+    df['body_displacement'] = df['body_center_x'].diff().abs()
+    examples['body_dynamism'] = get_two_worst_timestamps('body_displacement', find_smallest=True)
+
+    # 5. Conexión Empática (head_tilt_angle): buscamos los 2 momentos de menor inclinación.
+    df['head_tilt_abs'] = df['head_tilt_angle'].abs()
+    examples['head_tilt'] = get_two_worst_timestamps('head_tilt_abs', find_smallest=True)
+
+    return examples
+
 # --- FUNCIÓN 3: CÁLCULO DE MÉTRICAS FINALES ---
-def calculate_final_metrics(landmarks_df, emotions_df):
+def calculate_final_metrics(landmarks_df, emotions_df, fps):
     """
     Toma los DataFrames de landmarks y emociones y calcula las métricas finales agregadas,
     incluyendo las nuevas métricas de dinamismo corporal, inclinación de cabeza y postura.
     """
-    logging.info("Calculando métricas finales...")
+    logging.info("Calculando métricas finales y ejemplos ...")
     if landmarks_df.empty:
         logging.warning("El DataFrame de landmarks está vacío. No se pueden calcular métricas.")
         return {}
@@ -195,6 +248,8 @@ def calculate_final_metrics(landmarks_df, emotions_df):
     body_dynamism = df["body_center_x"].std()
     head_tilt_variability = df["head_tilt_angle"].std()
     posture_openness_avg = df["open_posture_ratio"].mean()
+
+    noteworthy_examples = find_noteworthy_timestamps(df.copy(), fps)
     
     # Análisis de emociones
     if not emotions_df.empty:
@@ -206,13 +261,16 @@ def calculate_final_metrics(landmarks_df, emotions_df):
 
     results = {
         "non_verbal_expression": {
-            "mouth_opening_avg": mar_mean if not np.isnan(mar_mean) else 0.0,
-            "mouth_opening_variability": mar_std if not np.isnan(mar_std) else 0.0,
-            "gesticulation_height_avg": wrist_y_mean if not np.isnan(wrist_y_mean) else 1.0,
-            "gesticulation_variability": wrist_y_std if not np.isnan(wrist_y_std) else 0.0,
-            "body_dynamism": body_dynamism if not np.isnan(body_dynamism) else 0.0,
-            "head_tilt_variability": head_tilt_variability if not np.isnan(head_tilt_variability) else 0.0,
-            "posture_openness_avg": posture_openness_avg if not np.isnan(posture_openness_avg) else 0.0,
+            "scores": {
+                "mouth_opening_avg": mar_mean if not np.isnan(mar_mean) else 0.0,
+                "mouth_opening_variability": mar_std if not np.isnan(mar_std) else 0.0,
+                "gesticulation_height_avg": wrist_y_mean if not np.isnan(wrist_y_mean) else 1.0,
+                "gesticulation_variability": wrist_y_std if not np.isnan(wrist_y_std) else 0.0,
+                "body_dynamism": body_dynamism if not np.isnan(body_dynamism) else 0.0,
+                "head_tilt_variability": head_tilt_variability if not np.isnan(head_tilt_variability) else 0.0,
+                "posture_openness_avg": posture_openness_avg if not np.isnan(posture_openness_avg) else 0.0,
+            },
+            "examples_to_improve": noteworthy_examples
         },
         "emotion_analysis": {
             "dominant_emotion": dominant_emotion,
@@ -229,8 +287,8 @@ def run_full_analysis(url):
         raise ValueError(message)
 
     try:
-        landmarks_df, emotions_df = process_video_single_pass(video_path, video_id)
-        final_results = calculate_final_metrics(landmarks_df, emotions_df)
+        landmarks_df, emotions_df, fps = process_video_single_pass(video_path, video_id)
+        final_results = calculate_final_metrics(landmarks_df, emotions_df, fps)
     finally:
         logging.info(f"Limpiando archivo de video: {video_path}")
         os.remove(video_path)
