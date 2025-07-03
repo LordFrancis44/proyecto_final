@@ -47,72 +47,101 @@ def download_audio_only(url, audio_dir="data/audio_raw"):
         return None
 
 # Encontrar ejemplos
+# speech_logic.py
+
+# ... (código existente hasta la función de ejemplos) ...
+
+# speech_logic.py
+
 def find_speech_examples(y, sr, f0, voiced_flag, non_silent_intervals, rms):
     """
-    VERSIÓN ROBUSTA: Encuentra 2 ejemplos distintos de momentos a mejorar.
+    VERSIÓN MODIFICADA: Incorpora la lógica de suavizado para una detección de
+    segmentos más robusta, manteniendo la estructura original.
     """
-    import pandas as pd
     examples_to_improve = {}
     hop_length = 512
-    MIN_EXAMPLE_DISTANCE_SEC = 10.0 # Asegura que los ejemplos estén separados por al menos 10 segundos
+    import pandas as pd
 
-    def get_distinct_timestamps(df, column_name, find_smallest=True, count=2):
-        """Función auxiliar para obtener N timestamps distintos para una métrica."""
-        if df.empty or column_name not in df.columns or df[column_name].isnull().all():
-            return []
+    # Crear un DataFrame base para el análisis
+    df = pd.DataFrame({'f0': f0, 'rms': rms, 'frame': np.arange(len(f0))})
+    df_voiced = df[voiced_flag].copy()
+
+    if df_voiced.empty:
+        return {}
+
+    def find_worst_segment_ts(metric_series, threshold, is_above_bad, min_duration_sec=2.0):
+        """
+        Función auxiliar para encontrar el segmento más problemático.
+        Usa suavizado para detectar y datos originales para evaluar.
+        """
+        if metric_series.empty or metric_series.isnull().all(): return None
+
+        # 1. Suavizado para detección robusta
+        window_size = int(1.5 * sr / hop_length)
+        smoothed_metric = metric_series.rolling(window=window_size, center=True, min_periods=1).mean()
+
+        # 2. Binarización con la serie suavizada
+        mask = smoothed_metric > threshold if is_above_bad else smoothed_metric < threshold
+        if not mask.any(): return None
         
-        # Obtenemos más candidatos de los que necesitamos para tener de dónde elegir
-        candidates = df.nsmallest(count * 5, column_name) if find_smallest else df.nlargest(count * 5, column_name)
+        # 3. Identificación de secuencias
+        sequences = mask.ne(mask.shift()).cumsum()
+        problematic_groups = metric_series[mask].groupby(sequences)
         
-        selected_timestamps = []
-        for _, row in candidates.iterrows():
-            ts = round(librosa.frames_to_time(row['frame'], sr=sr, hop_length=hop_length), 1)
-            # Comprobar si el nuevo timestamp está lo suficientemente lejos de los ya seleccionados
-            is_far_enough = all(abs(ts - existing_ts) > MIN_EXAMPLE_DISTANCE_SEC for existing_ts in selected_timestamps)
-            if is_far_enough:
-                selected_timestamps.append(ts)
-            if len(selected_timestamps) == count:
-                break
-        return sorted(selected_timestamps)
+        worst_segment_ts = None
+        max_score = -1
+
+        for _, group in problematic_groups:
+            duration = len(group) * hop_length / sr
+            if duration >= min_duration_sec:
+                start_frame_index = group.index[0]
+                
+                # 4. Gravedad calculada sobre los datos ORIGINALES del segmento
+                severity = (group - threshold).abs().mean()
+                score = duration * severity
+                
+                if score > max_score:
+                    max_score = score
+                    start_frame_num = df.loc[start_frame_index, 'frame']
+                    worst_segment_ts = round(librosa.frames_to_time(int(start_frame_num), sr=sr, hop_length=hop_length), 1)
+        
+        return worst_segment_ts
 
     # --- 1. Voz Monótona ---
     try:
-        df_f0 = pd.DataFrame({'f0': f0, 'frame': np.arange(len(f0))})
-        df_voiced = df_f0[voiced_flag]
         if len(df_voiced) > int(3 * sr / hop_length):
-            df_voiced['f0_std'] = df_voiced['f0'].rolling(window=int(3 * sr / hop_length), center=True).std().fillna(100)
-            examples_to_improve['monotony'] = get_distinct_timestamps(df_voiced, 'f0_std', find_smallest=True)
-        else:
-            examples_to_improve['monotony'] = []
-    except Exception as e:
-        print(f"Error en monotonía: {e}")
-        examples_to_improve['monotony'] = []
+            # Métrica: Desviación estándar del tono en ventanas de 3 segundos
+            f0_std_series = df_voiced['f0'].rolling(window=int(3 * sr / hop_length), center=True).std()
+            # Umbral: Por debajo de 20 Hz se considera monótono
+            examples_to_improve['monotony'] = find_worst_segment_ts(f0_std_series, threshold=20.0, is_above_bad=False, min_duration_sec=3.0)
+    except Exception: pass
 
-    # --- 2. Ritmo Rápido ---
+    # --- 2. Ritmo Rápido y Lento (La lógica original ya es correcta, pues trata con segmentos) ---
     try:
-        if len(non_silent_intervals) > 2:
-            speech_segments = [{'duration': (end - start), 'ts': round(start / sr, 1)} for start, end in non_silent_intervals]
-            speech_segments.sort(key=lambda x: x['duration'], reverse=True)
-            examples_to_improve['fast_pace'] = [s['ts'] for s in speech_segments[:2]]
-        else:
-            examples_to_improve['fast_pace'] = []
-    except Exception:
-        examples_to_improve['fast_pace'] = []
-
-    # --- 3. Volumen Bajo y Alto ---
-    try:
-        df_rms = pd.DataFrame({'rms': rms, 'frame': np.arange(len(rms))})
-        df_rms_voiced = df_rms[voiced_flag]
-        if len(df_rms_voiced) > 5: # Necesitamos suficientes datos
-            examples_to_improve['low_volume'] = get_distinct_timestamps(df_rms_voiced, 'rms', find_smallest=True)
-            examples_to_improve['high_volume'] = get_distinct_timestamps(df_rms_voiced, 'rms', find_smallest=False)
-        else:
-            examples_to_improve['low_volume'] = []
-            examples_to_improve['high_volume'] = []
-    except Exception:
-        examples_to_improve['low_volume'] = []
-        examples_to_improve['high_volume'] = []
+        if non_silent_intervals.size > 0:
+            longest_speech = max(non_silent_intervals, key=lambda i: i[1] - i[0])
+            examples_to_improve['fast_pace'] = round(longest_speech[0] / sr, 1)
+        if len(non_silent_intervals) > 1:
+            pauses = [(non_silent_intervals[i][0] - non_silent_intervals[i-1][1]) for i in range(1, len(non_silent_intervals))]
+            if pauses and max(pauses) > (sr * 2.5):
+                longest_pause_idx = np.argmax(pauses)
+                pause_start_sample = non_silent_intervals[longest_pause_idx][1]
+                examples_to_improve['slow_pace'] = round(pause_start_sample / sr, 1)
+    except Exception: pass
         
+    # --- 3. Tono Inadecuado (Aplicando la lógica de segmentos) ---
+    try:
+        mean_f0 = df_voiced['f0'].mean()
+        if pd.notna(mean_f0):
+            # Umbrales basados en la media del propio orador
+            high_pitch_threshold = mean_f0 * 1.40 
+            low_pitch_threshold = mean_f0 * 0.60
+            
+            # Buscamos segmentos donde el tono es consistentemente muy agudo o muy grave
+            examples_to_improve['high_pitch'] = find_worst_segment_ts(df_voiced['f0'], high_pitch_threshold, is_above_bad=True)
+            examples_to_improve['low_pitch'] = find_worst_segment_ts(df_voiced['f0'], low_pitch_threshold, is_above_bad=False)
+    except Exception: pass
+
     return examples_to_improve
 
 # --- FUNCIÓN 2: CÁLCULO DE MÉTRICAS DEL HABLA ---
@@ -127,8 +156,16 @@ def calculate_speech_metrics(audio_path):
     try:
         # Cargar el audio
         y, sr = librosa.load(audio_path, sr=None) # sr=None para mantener el sample rate original
-        total_duration = librosa.get_duration(y=y, sr=sr)
+        seconds_to_trim = 5
+        duration_total = librosa.get_duration(y=y, sr=sr)
+        if duration_total > (seconds_to_trim * 2):
+            start_sample = sr * seconds_to_trim
+            end_sample = len(y) - (sr * seconds_to_trim)
+            y = y[start_sample:end_sample]
+            logging.info(f"Audio recortado. Se han eliminado los primeros y últimos {seconds_to_trim} segundos.")
         
+        total_duration = librosa.get_duration(y=y, sr=sr)
+
         # 1. Variación Tonal (Prosodia)
         f0, voiced_flag, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
         voiced_f0 = f0[voiced_flag] # Quedarse solo con las partes donde hay voz
@@ -148,6 +185,11 @@ def calculate_speech_metrics(audio_path):
 
         noteworthy_examples = find_speech_examples(y, sr, f0, voiced_flag, non_silent_intervals, rms)
         
+        for category in noteworthy_examples:
+            if noteworthy_examples[category] is not None:
+                noteworthy_examples[category] += seconds_to_trim
+
+
         results = {
             "speech_analysis": {
                 "scores":{

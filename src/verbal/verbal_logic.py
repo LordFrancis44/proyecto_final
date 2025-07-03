@@ -70,7 +70,7 @@ def summarize_text(text, language):
     if language == 'en':
         model_name = "facebook/bart-large-cnn"
     else:
-        model_name = "sshleifer/distilbart-cnn-12-6"
+        model_name = "IlanKal/bart-base-finetuned-es-summarization"
     try:
         summarizer = pipeline("summarization", model=model_name)
         max_chunk_length = 1024

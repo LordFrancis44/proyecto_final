@@ -6,6 +6,7 @@ import json
 import time
 import logging
 import numpy as np
+import yt_dlp
 from multiprocessing import Pool
 
 # --- CONFIGURACIÓN DE RUTAS ---
@@ -69,16 +70,22 @@ def process_task(task_filepath):
         url = task_data['url']
         job_id = task_data['job_id']
 
+        video_title = "Título no disponible"
+        try:
+            with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                video_title = info.get('title', video_title)
+                logging.warning("Titulo del video ottenuto")
+        except Exception as e:
+            logging.warning(f"No se pudo extraer el título del vídeo: {e}")
+            
         logging.info(f"Lanzando análisis en paralelo para el job_id: {job_id}")
 
-        # --- INICIO DE LA MODIFICACIÓN CLAVE ---
-        # Usamos los nuevos nombres de función, que ahora son únicos y claros.
         tasks_to_run = [
             (run_non_verbal_analysis, url), # Análisis de gestos y emociones
-            (run_prosody_analysis, url),    # Análisis de la prosodia (tono, pausas)
-            (run_verbal_analysis, url)      # Análisis del contenido (transcripción, palabras)
+            (run_prosody_analysis, url),    # Análisis de la prosodia 
+            (run_verbal_analysis, url)      # Análisis del contenido verbal
         ]
-        # --- FIN DE LA MODIFICACIÓN CLAVE ---
 
         with Pool(processes=3) as pool: # Aumentado a 3 para que cada tarea tenga su propio proceso
             results_list = pool.map(run_analysis_task, tasks_to_run)

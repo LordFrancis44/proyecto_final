@@ -168,56 +168,68 @@ def calculate_open_posture_ratio(row):
 
 def find_noteworthy_timestamps(df, fps):
     """
-    Analiza el DataFrame para encontrar los dos peores momentos
-    para cada métrica, como ejemplos a mejorar.
+    VERSIÓN FINAL: Encuentra el segmento más representativo a mejorar para
+    las métricas clave de lenguaje no verbal.
     """
     if df.empty or not fps or fps <= 0:
         return {}
 
-    examples = {}
+    examples_to_improve = {}
     
-    def get_two_worst_timestamps(metric_name, find_smallest=True):
-        """
-        Función interna para encontrar los 2 peores frames y convertirlos a timestamps.
-        'find_smallest=True' significa que los valores más bajos son los peores.
-        """
-        try:
-            if metric_name not in df.columns or df[metric_name].isnull().all():
-                return []
-            
-            # Usar nsmallest/nlargest para encontrar los dos peores frames
-            if find_smallest:
-                worst_frames = df.nsmallest(2, metric_name)
-            else:
-                worst_frames = df.nlargest(2, metric_name)
-            
-            if worst_frames.empty:
-                return []
+    def find_worst_segment_ts(metric_series, threshold, is_above_bad, min_duration_sec=2.0):
+        # 1. SUAVIZADO: Se usa SOLO para identificar las regiones candidatas.
+        # Ventana de 3 segundos (nuestro DataFrame es ~1 FPS)
+        smoothed_metric = metric_series.rolling(window=3, center=True, min_periods=1).mean()
 
-            # Obtener los números de frame originales y convertir a timestamps
-            timestamps = [round(row['frame'] / fps, 1) for _, row in worst_frames.iterrows()]
-            return sorted(list(set(timestamps))) # Devuelve timestamps únicos y ordenados
-        except (ValueError, KeyError):
-            return []
+        # 2. BINARIZACIÓN: Se usa la serie suavizada para crear una máscara robusta contra el ruido.
+        mask = smoothed_metric > threshold if is_above_bad else smoothed_metric < threshold
+        if not mask.any(): return None
+        
+        # 3. IDENTIFICACIÓN DE SECUENCIAS
+        sequences = mask.ne(mask.shift()).cumsum()
+        problematic_groups = df[mask].groupby(sequences)
+        
+        worst_segment_ts = None
+        max_score = -1
 
-    # 1. Postura (open_posture_ratio): los 2 valores más bajos (postura cerrada) son peores.
-    examples['posture_openness'] = get_two_worst_timestamps('open_posture_ratio', find_smallest=True)
+        for _, group in problematic_groups:
+            # Duración aproximada en segundos del segmento
+            duration_in_rows = len(group)
+            # Factor de conversión de filas del DF a segundos reales
+            rows_per_second_approx = 1 / (df['frame'].diff().mean() / fps) if len(df['frame']) > 1 else 1
+            duration_in_sec = duration_in_rows / rows_per_second_approx
 
-    # 2. Claridad Vocal (mar): los 2 valores más bajos (boca cerrada) son peores.
-    examples['mouth_opening'] = get_two_worst_timestamps('mar', find_smallest=True)
+            if duration_in_sec >= min_duration_sec:
+                start_frame = group.iloc[0]['frame']
+                
+                # 4. CÁLCULO DE GRAVEDAD SOBRE DATOS ORIGINALES 
+                # Usamos los índices del grupo para seleccionar los datos de la serie original (no suavizada).
+                original_values_in_segment = metric_series[group.index]
+                severity = (original_values_in_segment - threshold).abs().mean()
+                
+                score = duration_in_sec * severity # Puntuamos por duración y gravedad real
+                
+                if score > max_score:
+                    max_score = score
+                    worst_segment_ts = round(start_frame / fps, 1)
+        
+        return worst_segment_ts
 
-    # 3. Presencia Escénica (avg_wrist_y): los 2 valores más altos (manos bajas) son peores.
-    examples['gesticulation_height'] = get_two_worst_timestamps('avg_wrist_y', find_smallest=False)
 
-    # 4. Dinamismo Corporal (body_center_x): buscamos los 2 momentos de menor movimiento.
-    df['body_displacement'] = df['body_center_x'].diff().abs()
-    examples['body_dynamism'] = get_two_worst_timestamps('body_displacement', find_smallest=True)
-
-    # 5. Conexión Empática (head_tilt_angle): buscamos los 2 momentos de menor inclinación.
+    # Manos Bajas (valor Y alto es malo)
+    examples_to_improve['gesticulation_height'] = find_worst_segment_ts(df['avg_wrist_y'], threshold=0.7, is_above_bad=True, min_duration_sec=3.0)
+    
+    # Postura Cerrada (ratio bajo es malo)
+    examples_to_improve['posture_openness'] = find_worst_segment_ts(df['open_posture_ratio'], threshold=1.8, is_above_bad=False, min_duration_sec=3.0)
+    
+    # Poca Inclinación de Cabeza (ángulo absoluto bajo es malo -> estático)
     df['head_tilt_abs'] = df['head_tilt_angle'].abs()
-    examples['head_tilt'] = get_two_worst_timestamps('head_tilt_abs', find_smallest=True)
-
-    return examples
+    # Para esta métrica, el problema no es que sea bajo, sino la falta de variación.
+    # Así que medimos la desviación estándar en una ventana.
+    df['head_tilt_std'] = df['head_tilt_abs'].rolling(window=5, min_periods=1).std().fillna(0)
+    examples_to_improve['head_tilt'] = find_worst_segment_ts(df['head_tilt_std'], threshold=0.5, is_above_bad=False, min_duration_sec=4.0)
+    
+    return examples_to_improve
 
 # --- FUNCIÓN 3: CÁLCULO DE MÉTRICAS FINALES ---
 def calculate_final_metrics(landmarks_df, emotions_df, fps):
@@ -229,8 +241,27 @@ def calculate_final_metrics(landmarks_df, emotions_df, fps):
     if landmarks_df.empty:
         logging.warning("El DataFrame de landmarks está vacío. No se pueden calcular métricas.")
         return {}
+    
+    seconds_to_trim = 5
+    total_duration = landmarks_df['frame'].max() / fps
+    
+    if total_duration > (seconds_to_trim * 2):
+        min_frame = seconds_to_trim * fps
+        max_frame = landmarks_df['frame'].max() - (seconds_to_trim * fps)
+        
+        # Recortamos el DataFrame principal de landmarks
+        landmarks_df_trimmed = landmarks_df[(landmarks_df['frame'] >= min_frame) & (landmarks_df['frame'] <= max_frame)].copy()
+        
+        # También recortamos el de emociones
+        emotions_df_trimmed = emotions_df[(emotions_df['frame'] >= min_frame) & (emotions_df['frame'] <= max_frame)].copy()
+        
+        logging.info(f"Análisis no verbal recortado. Se han eliminado los primeros y últimos {seconds_to_trim} segundos.")
+    else:
+        # Si el vídeo es demasiado corto, usamos los datos completos
+        landmarks_df_trimmed = landmarks_df.copy()
+        emotions_df_trimmed = emotions_df.copy()
 
-    df = landmarks_df.interpolate(method='linear', limit_direction='both', axis=0)
+    df = landmarks_df_trimmed.interpolate(method='linear', limit_direction='both', axis=0)
 
     # --- Calcular métricas por frame ---
     df["mar"] = df.apply(calculate_mar, axis=1)
@@ -252,8 +283,8 @@ def calculate_final_metrics(landmarks_df, emotions_df, fps):
     noteworthy_examples = find_noteworthy_timestamps(df.copy(), fps)
     
     # Análisis de emociones
-    if not emotions_df.empty:
-        emotion_counts = emotions_df['emotion'].value_counts(normalize=True)
+    if not emotions_df_trimmed.empty:
+        emotion_counts = emotions_df_trimmed['emotion'].value_counts(normalize=True)
         dominant_emotion = emotion_counts.idxmax()
         emotion_distribution = emotion_counts.to_dict()
     else:
