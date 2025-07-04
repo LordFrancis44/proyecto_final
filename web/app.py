@@ -68,7 +68,7 @@ def display_results(results_data, video_url):
     video_metadata = results_data.get("video_metadata", {})
     video_title = video_metadata.get('title')
     if video_title:
-        st.header(f"Análisis para: *{video_title}*")
+        st.title(f"Análisis para: *{video_title}*")
 
     st.success("¡Análisis completado! Aquí tienes tu feedback de comunicación.")
 

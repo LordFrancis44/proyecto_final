@@ -9,20 +9,18 @@ from collections import Counter
 import re
 import numpy as np
 import traceback
+import logging
 
 RHETORICAL_PATTERNS = {
-    'en': r'\b(like|as if|as though|as)\b',
-    'es': r'\b(como si|tal como|es como|así como|como)\b'
+    'en': r'\b(like|as if|as though|as)\b'
 }
 
 ENDING_KEYWORDS = {
-    'en': ["thank you", "final thought", "remember", "last message", "takeaway", "to sum up", "in conclusion"],
-    'es': ["gracias", "muchas gracias", "para concluir", "en resumen", "reflexión final", "para finalizar", "en conclusión", "para terminar"]
+    'en': ["thank you", "final thought", "remember", "last message", "takeaway", "to sum up", "in conclusion", "to summaraize"]
 }
 
 FILLER_WORDS = {
-    'en': ['um', 'uh', 'er', 'ah', 'like', 'okay', 'right', 'so', 'you know', 'well', 'basically', 'actually', 'literally'],
-    'es': ['eh', 'este', 'bueno', 'o sea', 'en plan', 'pues', 'vale', 'a ver', 'digamos', 'en fin', 'esto']
+    'en': ['um', 'uh', 'er', 'ah', 'like', 'okay', 'right', 'so', 'you know', 'well', 'basically', 'actually', 'literally', 'I mean']
 }
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache')
@@ -54,32 +52,49 @@ def download_audio(video_url):
         return audio_path
 
 def transcribe_audio(audio_path):
-    # Sin cambios, ya estaba bien.
     model = whisper.load_model("base")
     result = model.transcribe(audio_path, word_timestamps=True)
+    
     detected_language = result.get('language')
     full_text = result.get('text', '')
-    word_data = []
-    for segment in result.get('segments', []):
-        for word_info in segment.get('words', []):
-            word_data.append(word_info)
+    
+    word_data = [word for segment in result.get('segments', []) for word in segment.get('words', [])]
+            
     return full_text, word_data, detected_language
 
 def summarize_text(text, language):
-    # Sin cambios, ya estaba bien.
-    if language == 'en':
-        model_name = "facebook/bart-large-cnn"
-    else:
-        model_name = "IlanKal/bart-base-finetuned-es-summarization"
+    """
+    VERSIÓN AVANZADA: Genera un resumen completo procesando todo el texto en dos etapas.
+    """
+    # Nos centramos en la máxima calidad para inglés
+    if language != 'en':
+        return "El resumen detallado solo está optimizado para discursos en inglés."
+    
+    model_name = "facebook/bart-large-cnn"
+    
     try:
         summarizer = pipeline("summarization", model=model_name)
-        max_chunk_length = 1024
-        chunks = [text[i:i+max_chunk_length] for i in range(0, len(text), max_chunk_length)]
-        summarized_chunks = summarizer(chunks[:5], max_length=150, min_length=40, do_sample=False)
-        return " ".join([s['summary_text'] for s in summarized_chunks])
+        
+        # ETAPA 1: Crear "resúmenes intermedios" de todo el texto
+        # El modelo BART tiene un límite de 1024 tokens (~700-800 palabras)
+        max_chunk_length_chars = 4000 # Unos 800-900 palabras para estar seguros
+        chunks = [text[i:i+max_chunk_length_chars] for i in range(0, len(text), max_chunk_length_chars)]
+        
+        intermediate_summaries = summarizer(chunks, max_length=120, min_length=30, do_sample=False)
+        intermediate_text = " ".join([s['summary_text'] for s in intermediate_summaries])
+        
+        # Si el texto intermedio ya es corto, lo devolvemos
+        if len(intermediate_text) < max_chunk_length_chars:
+            return intermediate_text
+
+        # ETAPA 2: Crear un resumen final a partir del texto de resúmenes intermedios
+        final_summary = summarizer(intermediate_text, max_length=250, min_length=60, do_sample=False)
+        
+        return final_summary[0]['summary_text']
+
     except Exception as e:
-        print(f"Error durante el resumen: {e}")
-        return "El resumen no pudo ser generado para este idioma o texto."
+        logging.error(f"Error durante el resumen avanzado: {e}", exc_info=True)
+        return "El resumen no pudo ser generado debido a un error técnico."
 
 def extract_keywords(text, base_path, language):
     """
@@ -104,15 +119,44 @@ def lexical_diversity(text):
     return len(unique_words) / len(words)
 
 def count_rhetorical_devices(text, language):
+    """
+    MODIFICADO: Detecta símiles, preguntas y ANÁFORAS.
+    Usa una puntuación no lineal para una evaluación más realista.
+    """
+    # 1. Conteo de figuras
     pattern = RHETORICAL_PATTERNS.get(language, '')
-    repetitions = len(re.findall(r'\b(\w+)\b(?:\W+\1\b)+', text.lower()))
     questions = text.count('?')
-    comparison = len(re.findall(pattern, text.lower())) if pattern else 0
-    return repetitions + questions + comparison
+    comparisons = len(re.findall(pattern, text.lower())) if pattern else 0
+    
+    # Detección de Anáforas (repetición al inicio de frases)
+    anaphora_count = 0
+    sentences = [s.strip() for s in re.split(r'[.!?]', text) if len(s.strip()) > 1]
+    if len(sentences) > 1:
+        for i in range(len(sentences) - 1):
+            # Comparamos las primeras 2-3 palabras
+            first_phrase = " ".join(sentences[i].split()[:3])
+            second_phrase = " ".join(sentences[i+1].split()[:3])
+            if len(first_phrase.split()) > 1 and first_phrase.lower() == second_phrase.lower():
+                anaphora_count += 1
+
+    total_devices = anaphora_count + questions + comparisons
+    
+    # 2. Puntuación no lineal (sigmoide)
+    # Centrado en 5 dispositivos para una buena nota. 'k=0.3' da una curva suave.
+    score = 1 / (1 + np.exp(-0.3 * (total_devices - 5)))
+    
+    return score
 
 def estimate_structure_score(text):
-    segments = [s for s in re.split(r'\n|\.|\?|!', text) if len(s.strip()) > 10]
-    return min(len(segments) / 10, 1.0)
+    """
+    MODIFICADO: Usa una puntuación no lineal para la estructura.
+    """
+    segments = [s for s in re.split(r'\n\n+|\.|\?|!', text) if len(s.strip()) > 20]
+    num_segments = len(segments)
+    
+    # Puntuación no lineal centrada en 15 segmentos/ideas para una nota alta.
+    score = 1 / (1 + np.exp(-0.25 * (num_segments - 15)))
+    return score
 
 def ending_strength(text, language):
     keywords = ENDING_KEYWORDS.get(language, [])
@@ -275,6 +319,7 @@ def run_speech_analysis(video_url):
 
         # 2. Transcripción
         full_text, word_data, language = transcribe_audio(audio_path)
+
         if not full_text or not language:
             raise ValueError("La transcripción falló o no detectó el idioma.")
 
@@ -303,7 +348,6 @@ def run_speech_analysis(video_url):
             "verbal_analysis": {
                 "summary": summary,
                 "keywords": keywords,
-                "full_transcription": full_text[:5000],
                 "scores": verbal_scores,
                 "qualitative_feedback": {
                     "filler_words": filler_analysis,

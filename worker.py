@@ -87,7 +87,7 @@ def process_task(task_filepath):
             (run_verbal_analysis, url)      # Análisis del contenido verbal
         ]
 
-        with Pool(processes=3) as pool: # Aumentado a 3 para que cada tarea tenga su propio proceso
+        with Pool(processes=3) as pool: 
             results_list = pool.map(run_analysis_task, tasks_to_run)
         
         final_results = {}
@@ -95,6 +95,10 @@ def process_task(task_filepath):
             if res: # Añadir solo si el resultado no es None
                 final_results.update(res)
         
+        final_results["video_metadata"] = {
+            "title": video_title,
+            "url": url
+        }
         end_time = time.time()
         duration_seconds = end_time - start_time
         final_results["processing_metadata"] = {
