@@ -89,7 +89,7 @@ def process_video_single_pass(video_path, video_id):
             frame_rgb.flags.writeable = False
             results = holistic.process(frame_rgb)
             
-            speaker_is_present = results.pose_landmarks is not None
+            speaker_is_present = results.face_landmarks is not None or results.pose_landmarks is not None
             row = {"frame": frame_count, "speaker_present": speaker_is_present}
 
             if speaker_is_present:
@@ -104,11 +104,12 @@ def process_video_single_pass(video_path, video_id):
             
             landmarks_data.append(row)
             
-            try:
-                analysis = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=True, detector_backend='mediapipe')
-                if isinstance(analysis, list) and len(analysis) > 0:
-                    emotions_data.append({"frame": frame_count, "emotion": analysis[0]['dominant_emotion']})
-            except Exception: pass
+            if speaker_is_present:
+                try:
+                    analysis = DeepFace.analyze(frame, actions=['emotion'], enforce_detection=True, detector_backend='mediapipe')
+                    if isinstance(analysis, list) and len(analysis) > 0:
+                        emotions_data.append({"frame": frame_count, "emotion": analysis[0]['dominant_emotion']})
+                except Exception: pass
         
         frame_count += 1
     
@@ -241,49 +242,52 @@ def find_noteworthy_timestamps(df, fps):
 
 def calculate_final_metrics(landmarks_df, emotions_df, fps):
     """
-    VERSIÓN FINAL Y ROBUSTA: Calcula métricas y ejemplos aplicando dos filtros en orden:
-    1. Recorta los primeros y últimos 5 segundos del vídeo.
-    2. De los datos restantes, usa solo los frames donde el ponente es visible.
+    VERSIÓN FINAL Y DEPURADA: Aplica los filtros de forma correcta y secuencial.
     """
     logging.info("Calculando métricas finales y ejemplos...")
     if landmarks_df.empty or not fps:
         logging.warning("DataFrame de landmarks vacío o FPS no disponibles. No se pueden calcular métricas.")
         return {}
 
-    # --- FILTRADO EN DOS ETAPAS ---
+    # --- ETAPA 1: FILTRADO DE DATOS ---
 
-    # ETAPA 1: Recortar los primeros y últimos 5 segundos
+    # 1.1: Recortar los primeros y últimos 5 segundos del análisis
     seconds_to_trim = 5
     total_duration = landmarks_df['frame'].max() / fps
-    df_temp = landmarks_df
-    emotions_temp = emotions_df
+    
+    df_analysis = landmarks_df
+    emotions_analysis = emotions_df
 
     if total_duration > (seconds_to_trim * 2):
         min_frame = seconds_to_trim * fps
         max_frame = landmarks_df['frame'].max() - (seconds_to_trim * fps)
         
-        df_temp = landmarks_df[(landmarks_df['frame'] >= min_frame) & (landmarks_df['frame'] <= max_frame)]
-        emotions_temp = emotions_df[emotions_df['frame'].isin(df_temp['frame'])]
+        logging.info(f"Recortando análisis entre los frames {min_frame} y {max_frame}.")
+        df_analysis = landmarks_df[(landmarks_df['frame'] >= min_frame) & (landmarks_df['frame'] <= max_frame)]
         
-        logging.info(f"Análisis no verbal: Se han eliminado los primeros y últimos {seconds_to_trim} segundos.")
+        # Filtrar emociones solo si el DataFrame no está vacío
+        if not emotions_analysis.empty:
+            emotions_analysis = emotions_analysis[emotions_analysis['frame'].isin(df_analysis['frame'])]
 
-    # ETAPA 2: Filtrar frames sin ponente de los datos ya recortados
-    df_filtered = df_temp[df_temp['speaker_present'] == True].copy()
+    # 1.2: De los datos ya recortados, filtrar frames donde no se ve al ponente
+    df_final = df_analysis[df_analysis['speaker_present'] == True].copy()
 
-    if df_filtered.empty:
+    if df_final.empty:
         logging.warning("No se detectó al ponente en el segmento de tiempo analizado.")
         return {"non_verbal_expression": {"scores": {}, "examples_to_improve": {}}, "emotion_analysis": {}}
-    
-    # Filtrar emociones correspondientes a los frames finales
-    emotions_filtered = emotions_temp[emotions_temp['frame'].isin(df_filtered['frame'])]
-    
-    # --- FIN DEL FILTRADO ---
 
-    # A partir de aquí, todo opera sobre el DataFrame final 'df_filtered'
-    # La interpolación se aplica ahora a los datos limpios
-    df = df_filtered.interpolate(method='linear', limit_direction='both', axis=0)
+    # Actualizar el DataFrame de emociones para que coincida con los frames finales
+    if not emotions_analysis.empty:
+        emotions_final = emotions_analysis[emotions_analysis['frame'].isin(df_final['frame'])]
+    else:
+        emotions_final = pd.DataFrame()
+        
+    # --- ETAPA 2: CÁLCULO DE MÉTRICAS (sobre datos limpios) ---
+
+    # La interpolación se aplica ahora a los datos 100% filtrados
+    df = df_final.interpolate(method='linear', limit_direction='both', axis=0)
     
-    # Calcular métricas por frame
+    # Calcular métricas por frame (esto ahora es seguro)
     df["mar"] = df.apply(calculate_mar, axis=1)
     df["avg_wrist_y"] = df.apply(average_wrist_y, axis=1)
     df["body_center_x"] = df.apply(calculate_body_center_x, axis=1)
@@ -291,34 +295,35 @@ def calculate_final_metrics(landmarks_df, emotions_df, fps):
     df["open_posture_ratio"] = df.apply(calculate_open_posture_ratio, axis=1)
 
     # Calcular métricas agregadas
-    mar_mean = df["mar"].mean()
-    wrist_y_mean = df["avg_wrist_y"].mean()
-    body_dynamism_std = df["body_center_x"].std()
-    gesticulation_variability_std = df["avg_wrist_y"].std()
-    head_tilt_variability_std = df["head_tilt_angle"].abs().std()
-    posture_openness_avg = df["open_posture_ratio"].mean()
+    scores = {
+        "mouth_opening_avg": df["mar"].mean(),
+        "gesticulation_height_avg": df["avg_wrist_y"].mean(),
+        "body_dynamism": df["body_center_x"].std(),
+        "gesticulation_variability": df["avg_wrist_y"].std(),
+        "head_tilt_variability": df["head_tilt_angle"].abs().std(),
+        "posture_openness_avg": df["open_posture_ratio"].mean(),
+    }
 
-    # La búsqueda de ejemplos ahora se hace sobre el DataFrame ultra-limpio
+    # Limpieza de NaNs para la salida JSON
+    for key, value in scores.items():
+        if pd.isna(value):
+            scores[key] = 0.0
+
+    # Búsqueda de ejemplos
     noteworthy_examples = find_noteworthy_timestamps(df, fps)
     
-    # Análisis de emociones sobre el DataFrame de emociones filtrado
-    if not emotions_filtered.empty:
-        emotion_counts = emotions_filtered['emotion'].value_counts(normalize=True)
+    # Análisis de emociones
+    if not emotions_final.empty:
+        emotion_counts = emotions_final['emotion'].value_counts(normalize=True)
         dominant_emotion = emotion_counts.idxmax()
         emotion_distribution = emotion_counts.to_dict()
     else:
         dominant_emotion, emotion_distribution = "N/A", {}
 
+    # --- ETAPA 3: ENSAMBLAJE DEL RESULTADO ---
     results = {
         "non_verbal_expression": {
-            "scores": {
-                "mouth_opening_avg": mar_mean,
-                "gesticulation_height_avg": wrist_y_mean,
-                "body_dynamism": body_dynamism_std,
-                "gesticulation_variability": gesticulation_variability_std,
-                "head_tilt_variability": head_tilt_variability_std,
-                "posture_openness_avg": posture_openness_avg,
-            },
+            "scores": scores,
             "examples_to_improve": noteworthy_examples
         },
         "emotion_analysis": {
@@ -326,12 +331,8 @@ def calculate_final_metrics(landmarks_df, emotions_df, fps):
             "emotion_distribution": emotion_distribution
         }
     }
-    # Limpieza de NaNs para la salida JSON
-    for key, value in results["non_verbal_expression"]["scores"].items():
-        if np.isnan(value):
-            results["non_verbal_expression"]["scores"][key] = 0.0
 
-    logging.info(f"Métricas no verbales calculadas sobre datos filtrados.")
+    logging.info("Métricas no verbales calculadas sobre datos filtrados.")
     return results
 
 # --- FUNCIÓN PRINCIPAL DEL WORKER ---

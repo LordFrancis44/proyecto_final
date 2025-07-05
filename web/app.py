@@ -62,6 +62,16 @@ def display_timestamp_link(label, example_data, video_url):
         if text:
             st.info(f"> {text}")
 
+def show_improvement_example(label, timestamp, video_url):
+    """
+    Función de utilidad para mostrar un enlace a un momento específico del vídeo.
+    """
+    if timestamp is not None and video_url:
+        st.markdown(f"**{label}:**")
+        # Construimos el enlace con el timestamp específico de esta llamada
+        link = f"<a href='{video_url}&t={int(timestamp)}s' target='_blank'>Ver Ejemplo ({int(timestamp//60)}:{int(timestamp%60):02d})</a>"
+        st.markdown(link, unsafe_allow_html=True)
+
 def display_results(results_data, video_url):
     """Muestra los resultados finales en pestañas con las nuevas métricas y visualizaciones."""
    
@@ -120,13 +130,13 @@ def display_results(results_data, video_url):
         }
     
     score_gest_height = scale_metric_gaussian(non_verbal_scores.get('gesticulation_height_avg', 1.0), **RANGES_NON_VERBAL["gesticulation_height"])
-    score_gest_height = smooth_score(score_gest_height, factor=0.2)
+    score_gest_height = smooth_score(score_gest_height, factor=0.3)
     score_gest_var = scale_metric_gaussian(non_verbal_scores.get('gesticulation_variability', 0.0), **RANGES_NON_VERBAL["gesticulation_variability"])
-    score_gest_var = smooth_score(score_gest_var, factor=0.2)
+    score_gest_var = smooth_score(score_gest_var, factor=0.3)
     score_mouth_open = scale_metric_gaussian(non_verbal_scores.get('mouth_opening_avg', 0.0), **RANGES_NON_VERBAL["mouth_opening"])
-    score_mouth_open = smooth_score(score_mouth_open, factor=0.2)
+    score_mouth_open = smooth_score(score_mouth_open, factor=0.3)
     score_body_dyn = scale_metric_gaussian(non_verbal_scores.get('body_dynamism', 0.0), **RANGES_NON_VERBAL["body_dynamism"])
-    score_body_dyn = smooth_score(score_body_dyn, factor=0.2)
+    score_body_dyn = smooth_score(score_body_dyn, factor=0.3)
     score_head_tilt = scale_metric_gaussian(non_verbal_scores.get('head_tilt_variability', 0.0), **RANGES_NON_VERBAL["head_tilt"])
     score_head_tilt = smooth_score(score_head_tilt, factor=0.3)
     score_posture = scale_metric_gaussian(non_verbal_scores.get('posture_openness_avg', 0.0), **RANGES_NON_VERBAL["posture_openness"])
@@ -138,11 +148,11 @@ def display_results(results_data, video_url):
         "volume_variability": {'ideal_point': 0.08, 'width': 0.05}
     }
     score_pitch = scale_metric_gaussian(speech_scores.get('pitch_variation'), **RANGES_SPEECH["pitch_variation"])
-    score_pitch = smooth_score(score_pitch, factor=0.2)
+    score_pitch = smooth_score(score_pitch, factor=0.3)
     score_pauses = scale_metric_gaussian(speech_scores.get('silence_percentage'), **RANGES_SPEECH["silence_percentage"])
-    score_pauses = smooth_score(score_pauses, factor=0.2)
+    score_pauses = smooth_score(score_pauses, factor=0.3)
     score_volume = scale_metric_gaussian(speech_scores.get('volume_variability'), **RANGES_SPEECH["volume_variability"])
-    score_volume = smooth_score(score_volume, factor=0.2)
+    score_volume = smooth_score(score_volume, factor=0.3)
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "🧠 Expresión No Verbal", "🗣️ Contenido y Claridad", "🔊 Voz y Prosodia", "⭐ Resumen y Score Final"
@@ -166,11 +176,6 @@ def display_results(results_data, video_url):
         with st.expander("🔍 Ver ejemplos donde mejorar"):
             st.write("Hemos identificado los siguientes ejemplos de aspectos que puedes mejorar")
             # La función display_timestamp_link no es ideal aquí, lo hacemos manual
-            def show_improvement_example(label, timestamp, video_url):
-                if timestamp is not None:
-                    st.markdown(f"**{label}:**")
-                    link = f"<a href='{video_url}&t={int(timestamp)}s' target='_blank'>Ver Ejemplo ({int(timestamp//60)}:{int(timestamp%60):02d})</a>"
-                    st.markdown(link, unsafe_allow_html=True)
 
             non_verbal_examples = non_verbal.get("examples_to_improve", {})
             show_improvement_example("Mala posición de manos (caídas)", non_verbal_examples.get('gesticulation_height'), video_url)
@@ -281,12 +286,6 @@ def display_results(results_data, video_url):
 
         with st.expander("🔍 Ejemplos de mejora"):
             st.write("Hemos encontrado los siguientes ejemplos de aspectos a mejorar:")
-            
-            def show_improvement_example(label, timestamp, video_url):
-                if timestamp is not None:
-                    st.markdown(f"**{label}:**")
-                    link = f"<a href='{video_url}&t={int(timestamp)}s' target='_blank'>Ver Ejemplo ({int(timestamp//60)}:{int(timestamp%60):02d})</a>"
-                    st.markdown(link, unsafe_allow_html=True)
 
             speech_examples = speech.get("examples_to_improve", {})
             show_improvement_example("Momento de voz más monótona", speech_examples.get('monotony'), video_url)
@@ -298,22 +297,59 @@ def display_results(results_data, video_url):
     # --- PESTAÑA 4: SCORE FINAL ---
     with tab4:
         st.header("Tu Score Global de Comunicación")
-        st.info("Este es un score agregado basado en todas las métricas analizadas.")
+        st.success("Este es un score agregado basado en todas las métricas analizadas.")
         
         verbal_scores_list = list(verbal_scores.values()) if verbal_scores else []
         speech_scores_list = [score_pitch, score_pauses, score_volume]
         non_verbal_scores_list = [score_posture, score_mouth_open, score_gest_height, score_body_dyn, score_gest_var, score_head_tilt]
 
         all_scores = verbal_scores_list + non_verbal_scores_list + speech_scores_list
-        valid_scores = [s for s in all_scores if isinstance(s, (int, float)) and not np.isnan(s)]
+        valid_scores = [s for s in all_scores if isinstance(s, (int, float)) and not np.isnan(s) and s is not None]
         final_score = np.mean(valid_scores) if valid_scores else 0.0
+        progress_value = min(1.0, max(0.0, final_score / 10.0))
         
         st.markdown(f"<h1 style='text-align: center; color: #1E8449;'>{final_score:.1f} / 10</h1>", unsafe_allow_html=True)
         st.progress(final_score / 10)
         
-        st.markdown("#### Recomendaciones Clave (Ejemplo)")
-        st.markdown(f"- **Tu punto más fuerte:** {'Postura de Confianza' if final_score > 7 else 'Lenguaje de Manos'}.")
-        st.markdown(f"- **Área a mejorar:** {'Dinamismo en Escena' if score_body_dyn < 6 else 'Claridad Vocal'}.")
+        st.markdown("#### Recomendaciones Clave")
+
+        all_metrics = {
+        "Postura de Confianza": score_posture,
+        "Claridad Vocal (Articulación)": score_mouth_open,
+        "Presencia Escénica (Gestos)": score_gest_height,
+        "Dinamismo en Escena": score_body_dyn,
+        "Variedad en el Lenguaje de Manos": score_gest_var,
+        "Conexión Empática (Cabeceo)": score_head_tilt,
+        "Claridad del Mensaje": verbal_scores.get('message_clarity'),
+        "Estructura Narrativa": verbal_scores.get('structure'),
+        "Riqueza Léxica": verbal_scores.get('lexical_diversity'),
+        "Uso de Retórica": verbal_scores.get('rhetoric'),
+        "Fuerza del Cierre": verbal_scores.get('ending'),
+        "Discurso Fluido (sin muletillas)": verbal_scores.get('filler_words_usage'),
+        "Voz Carismática (Melodía)": score_pitch,
+        "Ritmo y Pausas": score_pauses,
+        "Energía Vocal (Dinamismo)": score_volume
+        }
+        
+        valid_metrics = {name: score for name, score in all_metrics.items() if score is not None}
+
+        if valid_metrics:
+            # 2. Encontrar el punto más fuerte
+            strongest_point = max(valid_metrics, key=valid_metrics.get)
+            strongest_score = valid_metrics[strongest_point]
+            st.markdown(f"- ✅ **Tu punto más fuerte es tu *{strongest_point.lower()}* con una nota de {strongest_score:.1f}/10.** ¡Sigue así!")
+
+            # 3. Encontrar el área a mejorar (ignorando puntuaciones de 0.0)
+            metrics_to_improve = {name: score for name, score in valid_metrics.items() if score > 0.1} # Usamos 0.1 para evitar problemas con floats
+            
+            if metrics_to_improve:
+                area_to_improve = min(metrics_to_improve, key=metrics_to_improve.get)
+                improvement_score = metrics_to_improve[area_to_improve]
+                st.markdown(f"- ⚠️ **El área con mayor potencial de mejora es tu *{area_to_improve.lower()}* ({improvement_score:.1f}/10).** ")
+            else:
+                st.markdown("- ⚠️ No hemos encontrado un área clara de mejora con una puntuación superior a cero. ¡Revisa las puntuaciones más bajas en las otras pestañas!")
+        else:
+            st.warning("No se pudieron calcular suficientes métricas para dar una recomendación.")
 
     if st.button("Analizar otro video"):
         if 'job_id' in st.session_state: del st.session_state['job_id']
@@ -350,13 +386,7 @@ def display_processing_status():
     time.sleep(10)
     st.rerun()
 
-def smooth_score(score, factor=0.8):
-    """
-    Suaviza una puntuación para que no sea tan extrema (0 o 10).
-    Mueve la puntuación hacia el 5. El 'factor' controla la intensidad.
-    factor=0.0 -> no hay suavizado.
-    factor=1.0 -> todas las notas son 5.
-    """
+def smooth_score(score, factor=0.5):
     if score is None: return None
     # Interpola linealmente entre la puntuación original y el punto medio (5)
     return score * (1 - factor) + 5 * factor

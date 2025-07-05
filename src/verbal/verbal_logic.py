@@ -30,9 +30,6 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 # --- Utilidades ---
 def download_audio(video_url):
-    """
-    MODIFICADO: Descarga el audio en formato WAV para unificar con speech_logic.
-    """
     ydl_opts = {
         'format': 'bestaudio/best',
         # COMENTADO: Es mejor no fijar la ruta de ffmpeg si está en el PATH del sistema.
@@ -63,9 +60,6 @@ def transcribe_audio(audio_path):
     return full_text, word_data, detected_language
 
 def summarize_text(text, language):
-    """
-    VERSIÓN AVANZADA: Genera un resumen completo procesando todo el texto en dos etapas.
-    """
     # Nos centramos en la máxima calidad para inglés
     if language != 'en':
         return "El resumen detallado solo está optimizado para discursos en inglés."
@@ -76,7 +70,6 @@ def summarize_text(text, language):
         summarizer = pipeline("summarization", model=model_name)
         
         # ETAPA 1: Crear "resúmenes intermedios" de todo el texto
-        # El modelo BART tiene un límite de 1024 tokens (~700-800 palabras)
         max_chunk_length_chars = 4000 # Unos 800-900 palabras para estar seguros
         chunks = [text[i:i+max_chunk_length_chars] for i in range(0, len(text), max_chunk_length_chars)]
         
@@ -97,10 +90,7 @@ def summarize_text(text, language):
         return "El resumen no pudo ser generado debido a un error técnico."
 
 def extract_keywords(text, base_path, language):
-    """
-    CORREGIDO: Construye la ruta al archivo de stopwords correctamente.
-    """
-    stopwords_path = os.path.join(base_path, f'stopwords_{language}.txt')
+    stopwords_path = os.path.join(base_path, f'stopwords_en.txt')
     stopwords = set()
     if os.path.exists(stopwords_path):
         # Añadida codificación utf-8 para compatibilidad
@@ -164,14 +154,65 @@ def ending_strength(text, language):
     return float(any(k in closing for k in keywords))
 
 def clarity_score(text):
-    sentences = [s for s in text.split('.') if s.strip()]
-    avg_sentence_length = sum(len(s.split()) for s in sentences) / max(1, len(sentences))
-    return max(0.0, min(1.0, 1 - (avg_sentence_length - 10) / 20))
+    sentences = [s.strip() for s in re.split(r'[.!?]', text) if len(s.strip()) > 5]
+    if not sentences: return 1.0 # Si no hay frases, la claridad es máxima por defecto
+    
+    word_counts = [len(s.split()) for s in sentences]
+    avg_len = np.mean(word_counts)
+    std_len = np.std(word_counts)
+    
+    # Penalización por longitud media. Ideal en 15, penaliza más allá.
+    len_score = np.exp(-0.01 * (max(0, avg_len - 15))**2)
+    
+    # Penalización por inconsistencia. Poca variación es bueno.
+    consistency_score = np.exp(-0.01 * std_len**2)
+    
+    # La puntuación final de claridad es una media ponderada
+    return (len_score * 0.7 + consistency_score * 0.3)
+
+def rhetoric_score(text, language):
+    pattern = RHETORICAL_PATTERNS.get(language, '')
+    
+    questions = text.count('?')
+    comparisons = len(re.findall(pattern, text.lower())) if pattern else 0
+    
+    # Detección de Anáfora (repetición al inicio de frases)
+    anaphora_count = 0
+    sentences = [s.strip() for s in re.split(r'[.!?]', text) if len(s.strip()) > 1]
+    if len(sentences) > 1:
+        for i in range(len(sentences) - 1):
+            first_phrase = " ".join(sentences[i].split()[:3])
+            second_phrase = " ".join(sentences[i+1].split()[:3])
+            if len(first_phrase.split()) > 1 and first_phrase.lower() == second_phrase.lower():
+                anaphora_count += 1
+                
+    # Ponderamos la importancia: las anáforas son más potentes.
+    total_score = (anaphora_count * 3) + (questions * 1) + (comparisons * 0.5)
+    
+    # Normalización logística, centrada en una puntuación ponderada de 10
+    return 1 / (1 + np.exp(-0.2 * (total_score - 10)))
+
+def filler_words_score(word_data):
+    # ... (la lógica de `analyze_filler_words` es la misma)
+    filler_analysis = analyze_filler_words(word_data, 'en') # Forzamos inglés
+    total_words = len(word_data) if word_data else 1
+    
+    # La puntuación ahora es más sensible al principio.
+    # 1 muletilla cada 100 palabras (~1% ratio) ya baja la nota a 8.
+    filler_ratio = (filler_analysis['total_count'] / total_words) * 100
+    score = 10 * np.exp(-0.15 * filler_ratio)
+    
+    return score, filler_analysis
+
+def structure_score(text):
+    # Contar párrafos (separados por saltos de línea dobles)
+    paragraphs = [p for p in text.split('\n\n') if len(p.strip().split()) > 20]
+    num_paragraphs = len(paragraphs)
+    
+    # Puntuación logística. Ideal alrededor de 12 párrafos para un discurso de 15-20 min.
+    return 1 / (1 + np.exp(-0.3 * (num_paragraphs - 12)))
 
 def analyze_filler_words(word_data, language):
-    """
-    Cuenta la frecuencia de las muletillas y encuentra la más común con un timestamp de ejemplo.
-    """
     filler_list = FILLER_WORDS.get(language, [])
     if not filler_list:
         return {"total_count": 0, "most_common": None, "example_timestamp": None, "distribution": {}}
@@ -180,134 +221,54 @@ def analyze_filler_words(word_data, language):
     example_timestamps = {}
 
     for word_info in word_data:
-        # Normalizamos la palabra para la comparación
-        word = word_info['word'].strip('.,!?').lower()
-        if word in filler_list:
-            filler_counts[word] += 1
-            # Guardamos el timestamp de la primera vez que vemos cada muletilla
-            if word not in example_timestamps:
-                example_timestamps[word] = round(word_info['start'], 1)
-    
-    total_fillers = sum(filler_counts.values())
-    
+        normalized_word = re.sub(r'[^\w\s]', '', word_info.get('word', '')).lower()
+        if normalized_word in filler_list:
+            filler_counts[normalized_word] += 1
+            if normalized_word not in example_timestamps:
+                example_timestamps[normalized_word] = round(word_info.get('start', 0), 1)
     if not filler_counts:
         return {"total_count": 0, "most_common": None, "example_timestamp": None, "distribution": {}}
-        
     most_common_filler, _ = filler_counts.most_common(1)[0]
-    
-    return {
-        "total_count": total_fillers,
-        "most_common": most_common_filler,
-        "example_timestamp": example_timestamps.get(most_common_filler),
-        "distribution": dict(filler_counts)
-    }
+    return {"total_count": sum(filler_counts.values()), "most_common": most_common_filler.capitalize(), 
+            "example_timestamp": example_timestamps.get(most_common_filler), "distribution": dict(filler_counts)}
 
-def extract_key_sentences(full_text, word_data, keywords, filler_analysis):
+def extract_key_sentences(full_text, word_data, keywords):
     """
     Extrae ejemplos de una oración clara y potente, y una potencialmente confusa.
     """
+    if not word_data: return {"best_sentence": None, "confusing_sentence": None}
     sentences_with_ts = []
-    # Primero, dividimos el texto en frases y les asignamos un timestamp de inicio
-    current_ts = 0
-    for word_info in word_data:
-        if not sentences_with_ts:
-            current_ts = round(word_info['start'], 1)
-            sentences_with_ts.append({'text': '', 'start_ts': current_ts})
-        
-        sentences_with_ts[-1]['text'] += word_info['word'] + ' '
-        
-        if '.' in word_info['word'] or '?' in word_info['word'] or '!' in word_info['word']:
-             # Preparamos para la siguiente oración
-            next_word_index = word_data.index(word_info) + 1
-            if next_word_index < len(word_data):
-                current_ts = round(word_data[next_word_index]['start'], 1)
-                sentences_with_ts.append({'text': '', 'start_ts': current_ts})
-
-    if not sentences_with_ts:
-        return {"best_sentence": None, "confusing_sentence": None}
-
-    # Encontrar la "Mejor Oración"
-    best_sentence = None
-    max_score = -1
-    for sentence in sentences_with_ts:
-        text = sentence['text'].lower()
-        word_count = len(text.split())
-        
-        # Puntuamos la oración: +1 por cada palabra clave, -1 por cada 10 palabras de longitud
-        score = sum(1 for kw in keywords if kw in text) - (word_count / 10)
-        
-        if score > max_score and 5 < word_count < 25: # Buscamos frases de longitud ideal
-            max_score = score
-            best_sentence = {
-                "text": sentence['text'].strip(),
-                "timestamp": sentence['start_ts']
-            }
-
-    # Encontrar el "Momento Confuso" (la frase más larga que ya teníamos)
-    longest_sentence_text = max([s['text'] for s in sentences_with_ts], key=len)
-    confusing_sentence = None
-    for sentence in sentences_with_ts:
-        if sentence['text'] == longest_sentence_text:
-            confusing_sentence = {
-                "text": sentence['text'].strip(),
-                "timestamp": sentence['start_ts']
-            }
-            break
-
-    return {
-        "best_sentence": best_sentence,
-        "confusing_sentence": confusing_sentence
-    }
-
-def find_verbal_examples(full_text, word_data, language):
-    """
-    Analiza el texto y los datos de palabras para encontrar timestamps de momentos clave.
-    """
-    if not word_data: return {}
-    examples = {}
-
-    # 1. Fuerza del Cierre
-    try:
-        closing_keywords = ENDING_KEYWORDS.get(language, [])
-        for word_info in reversed(word_data[-70:]): # Analizamos las últimas 70 palabras
-            if any(keyword in word_info['word'].lower() for keyword in closing_keywords):
-                examples['ending_strength'] = {'timestamp': round(word_info['start'], 1)}
-                break
-        else:
-             examples['ending_strength'] = {'timestamp': None}
-    except Exception:
-        examples['ending_strength'] = {'timestamp': None}
-
-    # 2. Uso de Retórica (Preguntas)
-    try:
-        for word_info in word_data:
-            if '?' in word_info['word']:
-                examples['rhetoric_question'] = {'timestamp': round(word_info['start'], 1)}
-                break 
-        else:
-            examples['rhetoric_question'] = {'timestamp': None}
-    except Exception:
-        examples['rhetoric_question'] = {'timestamp': None}
-
-    # 3. Claridad (la frase más larga, como ejemplo a mejorar)
-    try:
-        sentences = [s.strip() for s in re.split(r'[.!?]', full_text) if s.strip()]
-        if sentences:
-            longest_sentence = max(sentences, key=lambda s: len(s.split()))
-            first_word_of_longest = longest_sentence.split(' ')[0]
-            
-            for word_info in word_data:
-                if first_word_of_longest.lower() in word_info['word'].lower():
-                    examples['clarity_longest_sentence'] = {'timestamp': round(word_info['start'], 1)}
-                    break
+    current_sentence = {'text': '', 'start_ts': word_data[0]['start']}
+    for i, word_info in enumerate(word_data):
+        current_sentence['text'] += word_info.get('word', '') + ' '
+        if word_info.get('word', '').strip().endswith(('.', '?', '!')):
+            sentences_with_ts.append(current_sentence)
+            if i + 1 < len(word_data):
+                current_sentence = {'text': '', 'start_ts': word_data[i+1]['start']}
             else:
-                examples['clarity_longest_sentence'] = {'timestamp': None}
-        else:
-            examples['clarity_longest_sentence'] = {'timestamp': None}
-    except Exception:
-        examples['clarity_longest_sentence'] = {'timestamp': None}
+                current_sentence = None; break
+    if current_sentence: sentences_with_ts.append(current_sentence)
+    if not sentences_with_ts: return {"best_sentence": None, "confusing_sentence": None}
 
-    return examples
+    best_sentence_info = None
+    max_score = -float('inf')
+    for sentence in sentences_with_ts:
+        text_lower = sentence['text'].lower()
+        word_count = len(text_lower.split())
+        score = sum(1 for kw in keywords if kw in text_lower) - (word_count / 10)
+        if 5 < word_count < 30 and score > max_score:
+            max_score = score
+            best_sentence_info = {"text": sentence['text'].strip(), "timestamp": round(sentence['start_ts'], 1)}
+            
+    longest = max(sentences_with_ts, key=lambda s: len(s['text'].split()))
+    confusing_sentence_info = {"text": longest['text'].strip(), "timestamp": round(longest['start_ts'], 1)}
+
+    return {"best_sentence": best_sentence_info, "confusing_sentence": confusing_sentence_info}
+
+
+def smooth_score(score, factor=0.1):
+    if score is None: return None
+    return score * (1 - factor) + 5 * factor
 
 def run_speech_analysis(video_url):
     audio_path = None
@@ -323,27 +284,30 @@ def run_speech_analysis(video_url):
         if not full_text or not language:
             raise ValueError("La transcripción falló o no detectó el idioma.")
 
+        language = 'en'
+
         # 3. Análisis de Contenido (ahora la lógica es secuencial y clara)
         summary = summarize_text(full_text, language)
         stopwords_base_path = os.path.dirname(__file__)
         keywords = extract_keywords(full_text, stopwords_base_path, language)
         filler_analysis = analyze_filler_words(word_data, language)
-        key_sentences = extract_key_sentences(full_text, word_data, keywords, filler_analysis)
+        key_sentences = extract_key_sentences(full_text, word_data, keywords)
         
+        # --- Cálculo de Puntuaciones ---
         total_words = len(word_data)
         filler_ratio = (filler_analysis['total_count'] / total_words) * 100 if total_words > 0 else 0
-        filler_score = max(0, 10 - (filler_ratio / 0.5))
-
+        filler_score = 10 * np.exp(-0.2 * filler_ratio)
+        
         verbal_scores = {
-            "message_clarity": round(clarity_score(full_text) * 10, 2),
-            "structure": round(estimate_structure_score(full_text) * 10, 2),
-            "lexical_diversity": round(lexical_diversity(full_text) * 10, 2),
-            "rhetoric": round(min(count_rhetorical_devices(full_text, language) / 10, 1.0) * 10, 2),
-            "ending": round(ending_strength(full_text, language) * 10, 2),
-            "filler_words_usage": round(filler_score, 2)
+            "message_clarity": round(smooth_score(clarity_score(full_text) * 10), 2),
+            "structure": round(smooth_score(structure_score(full_text) * 10), 2),
+            "lexical_diversity": round(smooth_score(lexical_diversity(full_text) * 10), 2),
+            "rhetoric": round(smooth_score(rhetoric_score(full_text, language) * 10), 2),
+            "ending": round(smooth_score(ending_strength(full_text, language) * 10), 2),
+            "filler_words_usage": round(smooth_score(filler_score), 2)
         }
 
-        # 4. Ensamblaje del Resultado
+        # --- Ensamblaje del Resultado Final ---
         return {
             "verbal_analysis": {
                 "summary": summary,
@@ -357,10 +321,8 @@ def run_speech_analysis(video_url):
             }
         }
     except Exception as e:
-        print(f"ERROR en run_speech_analysis: {e}")
-        traceback.print_exc() # Imprime el traceback completo en la consola del worker
+        logging.error(f"ERROR en run_speech_analysis: {e}", exc_info=True)
         return {"verbal_analysis": {"error": str(e)}}
     finally:
-        # Limpieza del archivo de audio
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
