@@ -19,7 +19,7 @@ sys.path.append(SRC_DIR)
 try:
     from no_verbal.non_verbal_logic import run_full_analysis as run_non_verbal_analysis
     from habla.speech_logic import run_prosody_analysis as run_prosody_analysis
-    from verbal.verbal_logic import run_speech_analysis as run_verbal_analysis
+    from verbal.verbal_logic import run_verbal_analysis as run_verbal_analysis
 except ImportError as e:
     print(f"Error: No se pudo importar un módulo de análisis desde la carpeta 'src'. Detalle: {e}")
     sys.exit(1)
