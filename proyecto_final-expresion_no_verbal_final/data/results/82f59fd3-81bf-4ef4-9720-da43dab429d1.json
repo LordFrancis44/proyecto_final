@@ -1,0 +1,89 @@
+{
+    "non_verbal_expression": {
+        "scores": {
+            "mouth_opening_avg": 0.13444895178828856,
+            "gesticulation_height_avg": 0.7683744044061676,
+            "body_dynamism": 0.09431218835185096,
+            "gesticulation_variability": 0.13769657914189673,
+            "head_tilt_variability": 2.3278849722687855,
+            "posture_openness_avg": 0.35074911753883503
+        },
+        "examples_to_improve": {
+            "gesticulation_height": 246.0,
+            "posture_openness": 10.0,
+            "head_tilt": 10.0
+        }
+    },
+    "emotion_analysis": {
+        "dominant_emotion": "neutral",
+        "emotion_distribution": {
+            "neutral": 0.4,
+            "happy": 0.3,
+            "sad": 0.2,
+            "angry": 0.1
+        }
+    },
+    "speech_analysis": {
+        "scores": {
+            "pitch_variation": 39.65143813303157,
+            "silence_percentage": 18.48036631899189,
+            "volume_avg": 0.09001763164997101,
+            "volume_variability": 0.08758346736431122
+        },
+        "examples_to_improve": {
+            "monotony": 13.2,
+            "fast_pace": 264.1,
+            "high_pitch": 264.2,
+            "low_pitch": null
+        }
+    },
+    "verbal_analysis": {
+        "summary": "El resumen no pudo ser generado debido a un error t\u00e9cnico.",
+        "keywords": [
+            "persona",
+            "redes",
+            "chica",
+            "conocer",
+            "segundos",
+            "hab\u00eda",
+            "c\u00f3mo",
+            "gracias",
+            "despu\u00e9s",
+            "mam\u00e1"
+        ],
+        "scores": {
+            "message_clarity": 9.958762945154984,
+            "structure": 0.6297335605699651,
+            "lexical_diversity": 6.735175660465198,
+            "rhetoric": 0.8317269649392238,
+            "ending": 9.5,
+            "filler_words_usage": 10.0
+        },
+        "qualitative_feedback": {
+            "filler_words": {
+                "total_count": 0,
+                "most_common": "Ninguna",
+                "example_timestamp": null,
+                "distribution": {}
+            },
+            "key_sentences": {
+                "best_sentence": {
+                    "text": "No pod\u00eda creer que pudiera conocer a una persona as\u00ed a partir de las redes sociales.",
+                    "timestamp": 111.0
+                },
+                "confusing_sentence": {
+                    "text": "Y fue ah\u00ed cuando me di cuenta de que esta forma tan distinta de conocer a otros que hay en las redes sociales traspas\u00f3 las pantallas y est\u00e1 presente en mis encuentros del d\u00eda a d\u00eda.",
+                    "timestamp": 230.2
+                }
+            }
+        },
+        "detected_language": "es"
+    },
+    "video_metadata": {
+        "title": "C\u00f3mo conocer a alguien en 30 segundos | Micaela Amore | TEDxRiodelaPlata",
+        "url": "https://youtu.be/i5ui_DrtcpU?si=6UzNwi1q-dfnLqI9"
+    },
+    "processing_metadata": {
+        "duration_seconds": 293.62246465682983
+    }
+}

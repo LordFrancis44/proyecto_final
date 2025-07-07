@@ -1,0 +1,1 @@
+`np.float_` was removed in the NumPy 2.0 release. Use `np.float64` instead.

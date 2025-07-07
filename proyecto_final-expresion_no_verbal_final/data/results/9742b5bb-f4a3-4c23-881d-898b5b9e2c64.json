@@ -1,0 +1,87 @@
+{
+    "non_verbal_expression": {
+        "scores": {
+            "mouth_opening_avg": 0.08234395371245744,
+            "gesticulation_height_avg": 0.5895505977653656,
+            "body_dynamism": 0.08818589508099492,
+            "gesticulation_variability": 0.14598248053282678,
+            "head_tilt_variability": 5.3031476453324355,
+            "posture_openness_avg": 3.37083515837089
+        },
+        "examples_to_improve": {
+            "gesticulation_height": 152.0,
+            "posture_openness": 8.0,
+            "head_tilt": 219.0
+        }
+    },
+    "emotion_analysis": {
+        "dominant_emotion": "sad",
+        "emotion_distribution": {
+            "sad": 0.6,
+            "fear": 0.4
+        }
+    },
+    "speech_analysis": {
+        "scores": {
+            "pitch_variation": 28.83430373693786,
+            "silence_percentage": 9.715666944898544,
+            "volume_avg": 0.06032390892505646,
+            "volume_variability": 0.04243253171443939
+        },
+        "examples_to_improve": {
+            "monotony": 203.4,
+            "fast_pace": 267.5,
+            "high_pitch": 307.3,
+            "low_pitch": null
+        }
+    },
+    "verbal_analysis": {
+        "summary": "We spend roughly 60% of our communication time listening. We retain just 25% of what we hear. We listen to differences, we discount sounds that remain the same. Sound places us in space and in time. Ted talks about how to improve your listening. He says we need to teach listening in our schools as a skill. Ted: \"Let's get listening taught in schools and transform the world\"",
+        "keywords": [
+            "listening",
+            "it's",
+            "time",
+            "sound",
+            "world",
+            "like",
+            "listen",
+            "attention",
+            "we're",
+            "take"
+        ],
+        "scores": {
+            "message_clarity": 7.92,
+            "structure": 0.82,
+            "lexical_diversity": 3.42,
+            "rhetoric": 8.68,
+            "ending": 9.5,
+            "filler_words_usage": 9.5
+        },
+        "qualitative_feedback": {
+            "filler_words": {
+                "total_count": 0,
+                "most_common": null,
+                "example_timestamp": null,
+                "distribution": {}
+            },
+            "key_sentences": {
+                "best_sentence": {
+                    "text": "Let's  define  listening  as  making  meaning  from  sound.",
+                    "timestamp": 31.2
+                },
+                "confusing_sentence": {
+                    "text": "But  I  believe  that  every  human  being  needs  to  listen  consciously  in  order  to  live  fully,  connected  in  space  and  in  time  to  the  physical  world  around  us,  connected  in  understanding  to  each  other,  not  to  mention  spiritually  connected  because  every  spiritual  path  I  know  of  has  listening  and  contemplation  at  its  heart.",
+                    "timestamp": 397.6
+                }
+            }
+        },
+        "detected_language": "en"
+    },
+    "video_metadata": {
+        "title": "5 ways to listen better | Julian Treasure | TED",
+        "url": "https://youtu.be/cSohjlYQI2A?si=NA8DsYx8Zxxyo_np"
+    },
+    "processing_metadata": {
+        "duration_seconds": 195.91925191879272
+    }
+}
