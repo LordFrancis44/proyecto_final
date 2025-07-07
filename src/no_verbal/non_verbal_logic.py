@@ -174,10 +174,6 @@ def calculate_open_posture_ratio(row):
     except KeyError: return np.nan
 
 def find_noteworthy_timestamps(df, fps):
-    """
-    VERSIÓN FINAL: Encuentra el segmento más representativo a mejorar para
-    las métricas clave de lenguaje no verbal.
-    """
     if df.empty or not fps or fps <= 0:
         return {}
 

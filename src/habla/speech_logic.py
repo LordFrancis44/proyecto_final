@@ -1,4 +1,4 @@
-# src/habla/speech_logic.py
+# ---- speech_logic.py -----
 
 import os
 import yt_dlp
@@ -46,18 +46,7 @@ def download_audio_only(url, audio_dir="data/audio_raw"):
         logging.error(error_message, exc_info=True)
         return None
 
-# Encontrar ejemplos
-# speech_logic.py
-
-# ... (código existente hasta la función de ejemplos) ...
-
-# speech_logic.py
-
 def find_speech_examples(y, sr, f0, voiced_flag, non_silent_intervals, rms):
-    """
-    VERSIÓN MODIFICADA: Incorpora la lógica de suavizado para una detección de
-    segmentos más robusta, manteniendo la estructura original.
-    """
     examples_to_improve = {}
     hop_length = 512
     import pandas as pd

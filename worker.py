@@ -1,4 +1,4 @@
-# --- COPIA Y PEGA ESTE CÓDIGO MODIFICADO EN TU worker.py ---
+# --- worker.py ---
 
 import os
 import sys
@@ -15,19 +15,14 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 sys.path.append(SRC_DIR)
 
-# --- INICIO DE LA MODIFICACIÓN CLAVE ---
-# Renombramos TODAS las funciones importadas para evitar cualquier conflicto.
+# --- IMPORTACIÓN DE FUNCIONES PROPIAS ---
 try:
     from no_verbal.non_verbal_logic import run_full_analysis as run_non_verbal_analysis
-    # Renombramos la función de 'habla' para que sea más descriptiva (prosodia/voz).
     from habla.speech_logic import run_prosody_analysis as run_prosody_analysis
-    # La función de 'verbal' ya estaba bien renombrada, la mantenemos.
     from verbal.verbal_logic import run_speech_analysis as run_verbal_analysis
 except ImportError as e:
-    # Este mensaje de error ahora será mucho más útil si algo falla.
-    print(f"Error: No se pudo importar un módulo de análisis desde la carpeta 'src'. Verifica las rutas y nombres. Detalle: {e}")
+    print(f"Error: No se pudo importar un módulo de análisis desde la carpeta 'src'. Detalle: {e}")
     sys.exit(1)
-# --- FIN DE LA MODIFICACIÓN CLAVE ---
 
 TASKS_DIR = os.path.join(DATA_DIR, "tasks")
 RESULTS_DIR = os.path.join(DATA_DIR, "results")
@@ -36,7 +31,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - WORKER - %(levelname)s - %(message)s')
 
-# --- Función de conversión de tipos (sin cambios) ---
+# --- Función de conversión de tipos ---
 def convert_to_native_types(obj):
     if isinstance(obj, dict):
         return {k: convert_to_native_types(v) for k, v in obj.items()}
@@ -92,7 +87,7 @@ def process_task(task_filepath):
         
         final_results = {}
         for res in results_list:
-            if res: # Añadir solo si el resultado no es None
+            if res: 
                 final_results.update(res)
         
         final_results["video_metadata"] = {

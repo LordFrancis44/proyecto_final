@@ -1,3 +1,5 @@
+# ----- verbal_logic.py ----- 
+
 import os
 import tempfile
 #import torch
@@ -32,11 +34,9 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 def download_audio(video_url):
     ydl_opts = {
         'format': 'bestaudio/best',
-        # COMENTADO: Es mejor no fijar la ruta de ffmpeg si está en el PATH del sistema.
-        # 'ffmpeg_location': '/opt/homebrew/bin/ffmpeg',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav',  # Unificado a WAV
+            'preferredcodec': 'wav',  
             'preferredquality': '192',
         }],
         'outtmpl': os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s'),
@@ -44,7 +44,6 @@ def download_audio(video_url):
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=True)
-        # La extensión ahora es .wav
         audio_path = os.path.join(tempfile.gettempdir(), f"{info['id']}.wav")
         return audio_path
 
@@ -60,7 +59,6 @@ def transcribe_audio(audio_path):
     return full_text, word_data, detected_language
 
 def summarize_text(text, language):
-    # Nos centramos en la máxima calidad para inglés
     if language != 'en':
         return "El resumen detallado solo está optimizado para discursos en inglés."
     
@@ -70,7 +68,7 @@ def summarize_text(text, language):
         summarizer = pipeline("summarization", model=model_name)
         
         # ETAPA 1: Crear "resúmenes intermedios" de todo el texto
-        max_chunk_length_chars = 4000 # Unos 800-900 palabras para estar seguros
+        max_chunk_length_chars = 4000 
         chunks = [text[i:i+max_chunk_length_chars] for i in range(0, len(text), max_chunk_length_chars)]
         
         intermediate_summaries = summarizer(chunks, max_length=120, min_length=30, do_sample=False)
@@ -93,7 +91,6 @@ def extract_keywords(text, base_path, language):
     stopwords_path = os.path.join(base_path, f'stopwords_en.txt')
     stopwords = set()
     if os.path.exists(stopwords_path):
-        # Añadida codificación utf-8 para compatibilidad
         with open(stopwords_path, 'r', encoding='utf-8') as f:
             stopwords = set(word.strip().lower() for word in f.readlines())
             
@@ -108,43 +105,13 @@ def lexical_diversity(text):
     unique_words = set(words)
     return len(unique_words) / len(words)
 
-def count_rhetorical_devices(text, language):
-    """
-    MODIFICADO: Detecta símiles, preguntas y ANÁFORAS.
-    Usa una puntuación no lineal para una evaluación más realista.
-    """
-    # 1. Conteo de figuras
-    pattern = RHETORICAL_PATTERNS.get(language, '')
-    questions = text.count('?')
-    comparisons = len(re.findall(pattern, text.lower())) if pattern else 0
-    
-    # Detección de Anáforas (repetición al inicio de frases)
-    anaphora_count = 0
-    sentences = [s.strip() for s in re.split(r'[.!?]', text) if len(s.strip()) > 1]
-    if len(sentences) > 1:
-        for i in range(len(sentences) - 1):
-            # Comparamos las primeras 2-3 palabras
-            first_phrase = " ".join(sentences[i].split()[:3])
-            second_phrase = " ".join(sentences[i+1].split()[:3])
-            if len(first_phrase.split()) > 1 and first_phrase.lower() == second_phrase.lower():
-                anaphora_count += 1
-
-    total_devices = anaphora_count + questions + comparisons
-    
-    # 2. Puntuación no lineal (sigmoide)
-    # Centrado en 5 dispositivos para una buena nota. 'k=0.3' da una curva suave.
-    score = 1 / (1 + np.exp(-0.3 * (total_devices - 5)))
-    
-    return score
-
 def estimate_structure_score(text):
     """
-    MODIFICADO: Usa una puntuación no lineal para la estructura.
+    Usa una puntuación no lineal para la estructura.
     """
     segments = [s for s in re.split(r'\n\n+|\.|\?|!', text) if len(s.strip()) > 20]
     num_segments = len(segments)
     
-    # Puntuación no lineal centrada en 15 segmentos/ideas para una nota alta.
     score = 1 / (1 + np.exp(-0.25 * (num_segments - 15)))
     return score
 
@@ -176,7 +143,7 @@ def rhetoric_score(text, language):
     questions = text.count('?')
     comparisons = len(re.findall(pattern, text.lower())) if pattern else 0
     
-    # Detección de Anáfora (repetición al inicio de frases)
+    # Detección de Anáfora
     anaphora_count = 0
     sentences = [s.strip() for s in re.split(r'[.!?]', text) if len(s.strip()) > 1]
     if len(sentences) > 1:

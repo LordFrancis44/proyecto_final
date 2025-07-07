@@ -1,3 +1,5 @@
+# ---- app.py -----
+
 import streamlit as st
 import os
 import sys
@@ -43,7 +45,6 @@ def scale_metric_gaussian(value, ideal_point, width, is_inverse=False):
 def display_metric_gauge(title, score, help_text):
     """Muestra una métrica con un título atractivo, un score y una barra de progreso."""
     st.markdown(f"**{title}**")
-    # Asegurarse de que el score no sea None antes de formatear
     score_display = score if score is not None else 0.0
     st.markdown(f"<h3 style='text-align: center; color: #2E86C1;'>{score_display:.1f} / 10</h3>", unsafe_allow_html=True)
     st.progress(score_display / 10)
@@ -56,7 +57,6 @@ def display_timestamp_link(label, example_data, video_url):
         ts = example_data['timestamp']
         text = example_data.get('text', '')
         st.markdown(f"**{label}:**")
-        # El enlace abre el vídeo de YouTube en el segundo exacto
         link = f"<a href='{video_url}&t={int(ts)}s' target='_blank'>Ver momento (Minuto {int(ts//60)}:{int(ts%60):02d})</a>"
         st.markdown(link, unsafe_allow_html=True)
         if text:
@@ -73,7 +73,7 @@ def show_improvement_example(label, timestamp, video_url):
         st.markdown(link, unsafe_allow_html=True)
 
 def display_results(results_data, video_url):
-    """Muestra los resultados finales en pestañas con las nuevas métricas y visualizaciones."""
+    """Muestra los resultados finales en pestañas con las métricas y visualizaciones."""
    
     video_metadata = results_data.get("video_metadata", {})
     video_title = video_metadata.get('title')
@@ -175,15 +175,12 @@ def display_results(results_data, video_url):
         
         with st.expander("🔍 Ver ejemplos donde mejorar"):
             st.write("Hemos identificado los siguientes ejemplos de aspectos que puedes mejorar")
-            # La función display_timestamp_link no es ideal aquí, lo hacemos manual
 
             non_verbal_examples = non_verbal.get("examples_to_improve", {})
             show_improvement_example("Mala posición de manos (caídas)", non_verbal_examples.get('gesticulation_height'), video_url)
             show_improvement_example("Postura cerrada", non_verbal_examples.get('posture_openness'), video_url)
             show_improvement_example("Poca inclinación de cabeza", non_verbal_examples.get('head_tilt'), video_url)
            
-
-
         st.header("Tu Paleta Emocional")
         if emotions and emotions.get('emotion_distribution'):
             emotion_translation = {'angry': 'Enfado','disgust': 'Asco','fear': 'Miedo','happy': 'Alegría','sad': 'Tristeza','surprise': 'Sorpresa','neutral': 'Neutralidad'}
@@ -215,7 +212,6 @@ def display_results(results_data, video_url):
                 display_metric_gauge("Estructura Narrativa", verbal_scores.get('structure'), "Mide la cohesión y organización de tu discurso.")
                 display_metric_gauge("Uso de Retórica", verbal_scores.get('rhetoric'), "Detecta figuras retóricas para hacer el discurso más persuasivo.")
             with col3:
-                # El nuevo gauge para muletillas
                 display_metric_gauge("Uso de Muletillas", verbal_scores.get('filler_words_usage'), "Una puntuación alta indica un discurso fluido y sin apenas muletillas (ej: 'um', 'este', 'like').")
                 display_metric_gauge("Fuerza del Cierre", verbal_scores.get('ending'), "Evalúa si el final es contundente y claro.")
             
