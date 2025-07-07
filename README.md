@@ -1,2 +1,4 @@
 # proyecto_final
-Proyecto consistente en el análisis de contenido audiovisual de carácter educativo. Se analizará la expresión verbal, las características del habla, la expresión no verbal y otros aspectos de dicho contenido. La finalidad del proyecto es ayudar a mejorar las competencias retóricas de los ponentes. 
+Este proyecto consiste en crear un asistente basado en IA para la mejora de las competencias comunicativas. Se ha creado una interfaz web que permite al usuario introducir la url de un video de YouTube, el cual es analizado desde tres puntos de vista: comunicación no verbal, análisis de la prosodia y análisis del contenido verbal. Se devuelven puntuaciones, ejemplos de mejora, puntos fuertes y débiles, resumen y palabras clave. 
+
+El objetivo final es que el usuario pueda obtener un feedback sobre la calidad de su ponencia o de la de un tercero.  
